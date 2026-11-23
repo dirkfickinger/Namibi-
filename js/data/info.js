@@ -12,6 +12,8 @@ export const FACTS = [
   ['Stroom', '220–230 V, stekkertype D en M (grote ronde pinnen, zoals Zuid-Afrika). Neem een wereldstekker mee'],
   ['Verkeer', 'Links rijden'],
   ['Landnummer', '+264'],
+  ['Hoogste punt', 'Königstein (Brandberg), ca. 2573 m'],
+  ['Kustlijn', 'ca. 1570 km langs de Atlantische Oceaan'],
 ];
 
 export const SECTIONS = [
@@ -25,7 +27,8 @@ export const SECTIONS = [
 <li>Reis je door Zuid-Afrika of Botswana: controleer ook die regels.</li>
 <li>Reis je met minderjarigen: neem een (internationaal) uittreksel geboorteakte en toestemmingsverklaringen mee.</li>
 </ul>
-<p class="note">Regels en tarieven wijzigen. Controleer altijd <em>nederlandwereldwijd.nl</em> (reisadvies Namibië) en het officiële e-visumportaal van de Namibische overheid.</p>`,
+<p><strong>Kosten (indicatie):</strong> het e-visum kost ca. <strong>N$1.600</strong> per persoon. Bij aankomst kan een hoger tarief gelden (genoemd wordt N$2.000). Een e-visum vooraf scheelt bovendien wachten in de rij bij aankomst. Print de goedkeuring en neem die mee.</p>
+<p class="note">Bronnen spreken elkaar tegen over de precieze regels per land. Regels en tarieven wijzigen. Controleer altijd <em>nederlandwereldwijd.nl</em> (reisadvies Namibië) en het officiële e-visumportaal van de Namibische overheid.</p>`,
   },
   {
     id: 'geld', icon: '💵', title: 'Geld & betalen',
@@ -106,8 +109,10 @@ export const SECTIONS = [
     body: `
 <ul>
 <li><strong>Entreegeld</strong> betaal je bij de poort of in het kantoor (bijv. Okaukuejo of Sesriem): per persoon per dag + per voertuig per dag. Houd contant of een creditcard bij de hand.</li>
+<li><strong>Nieuwe tarieven sinds 1 april 2026</strong> voor buitenlandse volwassenen: ca. <strong>N$280 p.p. per dag</strong> in de "premium" parken (o.a. Etosha, Namib-Naukluft/Sossusvlei, Skeleton Coast, Ai-Ais/Fish River) en ca. <strong>N$200 p.p. per dag</strong> in de overige parken (o.a. Bwabwata, Mudumu, Khaudum). Daar komt een voertuigtarief bij. Voor Sandwich Harbour geldt een aparte concessievergoeding.</li>
 <li><strong>Poorttijden:</strong> de meeste parken zijn open van <strong>zonsopkomst tot zonsondergang</strong>. Je moet vóór zonsondergang in je kamp of buiten het park zijn.</li>
-<li><strong>Sossusvlei:</strong> wie binnen de poort overnacht (Sesriem Campsite, Sossus Dune Lodge) mag ca. 1 uur vóór zonsopkomst naar de duinen; de buitenste poort opent later.</li>
+<li><strong>Sossusvlei:</strong> er zijn twee poorten. De buitenste poort opent bij zonsopkomst; wie binnen de poort overnacht (Sesriem Campsite, Sossus Dune Lodge) mag via de binnenste poort ca. 1 uur eerder naar de duinen. De tijden verschuiven per maand – vraag ze na bij aankomst. Koop je vergunning bij voorkeur de dag ervoor, om de rij in de ochtend te vermijden.</li>
+<li><strong>Laatste 5 km naar Sossusvlei/Deadvlei:</strong> diep zand, alleen voor 4x4. Met een gewone auto parkeer je bij de 2x4-parkeerplaats en neem je de shuttle (betaald, p.p.).</li>
 <li><strong>Etosha:</strong> drie hoofdpoorten (Andersson in het zuiden, Von Lindequist in het oosten, Galton in het westen) plus de King Nehale Gate in het noorden. Overnachten binnen het park kan in de NWR-kampen.</li>
 <li>Kampen van <strong>Namibia Wildlife Resorts (NWR)</strong> zijn in het hoogseizoen (jul–okt) vaak maanden vooruit volgeboekt. Boek ruim van tevoren!</li>
 <li>Voor sommige gebieden (bijv. Welwitschia Drive, Sandwich Harbour, Fish River-hike) heb je een aparte <strong>permit</strong> nodig.</li>
@@ -149,6 +154,162 @@ export const SECTIONS = [
 <li>Herero-vrouwen dragen opvallende Victoriaanse jurken en "koeienhoorn"-hoofddeksels, een erfenis van de koloniale tijd.</li>
 <li>Geschiedenis: Duitse kolonie (1884–1915), daarna onder Zuid-Afrikaans bestuur tot de onafhankelijkheid in 1990. De genocide op de Herero en Nama (1904–1908) is een gevoelig onderwerp.</li>
 </ul>`,
+  },
+
+  {
+    id: 'geschiedenis', icon: '📜', title: 'Geschiedenis in het kort',
+    body: `
+<ul>
+<li><strong>Oudheid:</strong> de San (Bosjesmannen) leven al tienduizenden jaren in het gebied. Hun rotskunst – zoals in Twyfelfontein en de Brandberg – is duizenden jaren oud.</li>
+<li><strong>Later:</strong> Nama, Damara, Herero, Ovambo, Kavango en andere volken vestigen zich in verschillende delen van het land.</li>
+<li><strong>1486–1488:</strong> Portugese zeevaarders (Diogo Cão bij Cape Cross, Bartolomeu Dias bij Lüderitz) plaatsen stenen kruisen langs de kust.</li>
+<li><strong>1884–1915:</strong> Duitse kolonie Deutsch-Südwestafrika. Vandaar de Duitse architectuur, straatnamen en bakkerijen.</li>
+<li><strong>1904–1908:</strong> genocide op de Herero en Nama door de Duitse koloniale troepen. Duitsland erkende dit in 2021. Sinds 2025 is 28 mei in Namibië een nationale herdenkingsdag.</li>
+<li><strong>1908:</strong> diamantvondst bij Kolmanskop; het zuiden wordt grotendeels "Sperrgebiet" (verboden gebied).</li>
+<li><strong>1915–1990:</strong> bestuur door Zuid-Afrika, inclusief apartheidspolitiek. Vanaf 1966 voert SWAPO een onafhankelijkheidsstrijd.</li>
+<li><strong>21 maart 1990:</strong> onafhankelijkheid. Namibië is sindsdien een stabiele democratie en was in 1990 een van de eerste landen ter wereld die natuurbescherming in de grondwet opnam.</li>
+</ul>`,
+  },
+  {
+    id: 'natuur', icon: '🌵', title: 'Landschap, klimaat & natuur',
+    body: `
+<p>Namibië is een van de droogste landen ten zuiden van de Sahara. Het land is grofweg op te delen in vier zones:</p>
+<ul>
+<li><strong>De Namib</strong> – een van de oudste woestijnen ter wereld, langs de hele kust. De koude <strong>Benguelastroom</strong> zorgt voor kustmist, die voor veel planten en dieren de belangrijkste waterbron is.</li>
+<li><strong>Het centrale hoogland</strong> – rond Windhoek (ca. 1650 m), met savanne en bergen.</li>
+<li><strong>De Kalahari</strong> – in het oosten: rode zandduinen met gras en kameeldoorns.</li>
+<li><strong>Het noorden en noordoosten</strong> – vlakker en natter, met de rivieren Kunene, Kavango, Kwando en Zambezi.</li>
+</ul>
+<h3>Bijzondere planten</h3>
+<ul>
+<li><strong>Welwitschia mirabilis</strong> – een "levend fossiel" met maar twee bladeren die eindeloos doorgroeien; sommige exemplaren zijn meer dan 1000 jaar oud.</li>
+<li><strong>Kokerboom</strong> (quiver tree) – een boomvormige aloë; de San maakten pijlkokers van de takken.</li>
+<li><strong>Kameeldoorn</strong> (camelthorn) – de iconische acacia van de Kalahari en Deadvlei.</li>
+<li><strong>Mopane</strong> – met vlindervormige bladeren, veel in het noorden; voedsel voor olifanten.</li>
+<li><strong>Baobab</strong> – enorme bomen in het noordoosten, o.a. rond Tsumkwe.</li>
+</ul>
+<h3>Feeënringen (fairy circles)</h3>
+<p>Kale, ronde plekken van enkele meters in het grasland van de Namib, vooral rond NamibRand en de Marienfluss. Hoe ze ontstaan is nog steeds onderwerp van wetenschappelijk debat: termieten, of gras dat concurreert om het schaarse water.</p>`,
+  },
+  {
+    id: 'parkenlijst', icon: '🗺️', title: 'Overzicht nationale parken',
+    body: `
+<table class="tbl">
+<tr><th>Park</th><th>Waarom gaan?</th></tr>
+<tr><td><b>Etosha</b></td><td>Het wildpark van Namibië: zoutpan en waterpoelen, olifanten, leeuwen, neushoorns.</td></tr>
+<tr><td><b>Namib-Naukluft</b></td><td>Sossusvlei, Deadvlei, Sesriem en de Naukluftbergen.</td></tr>
+<tr><td><b>Dorob</b></td><td>De kust rond Swakopmund en Walvis Bay, met het Maanlandschap en de Welwitschia Drive.</td></tr>
+<tr><td><b>Skeleton Coast</b></td><td>Desolate kust met scheepswrakken, mist en woestijnleeuwen.</td></tr>
+<tr><td><b>Ai-Ais/Richtersveld</b></td><td>Fish River Canyon en de warmwaterbronnen van Ai-Ais.</td></tr>
+<tr><td><b>Tsau //Khaeb (Sperrgebiet)</b></td><td>Het voormalige diamantgebied; alleen toegankelijk met een tour (o.a. naar Bogenfels).</td></tr>
+<tr><td><b>Waterberg Plateau</b></td><td>Zandsteenplateau met wandelpaden en zeldzaam wild.</td></tr>
+<tr><td><b>Bwabwata</b></td><td>Rivierlandschap aan de Kavango en Kwando, olifanten en buffels.</td></tr>
+<tr><td><b>Nkasa Rupara</b></td><td>Moerassen en eilanden, Namibië's "mini-Okavango".</td></tr>
+<tr><td><b>Mudumu</b></td><td>Rustig park aan de Kwando, sitatunga en veel vogels.</td></tr>
+<tr><td><b>Khaudum</b></td><td>Ruige wildernis voor ervaren 4x4-reizigers.</td></tr>
+</table>
+<p class="note">Sinds 1 april 2026 gelden hogere parktarieven voor buitenlandse bezoekers (zie "Nationale parken & permits").</p>`,
+  },
+  {
+    id: 'feestdagen', icon: '🎉', title: 'Feestdagen & evenementen',
+    body: `
+<h3>Nationale feestdagen 2026</h3>
+<table class="tbl">
+<tr><td>1 jan</td><td>Nieuwjaarsdag</td></tr>
+<tr><td>21 mrt</td><td>Onafhankelijkheidsdag</td></tr>
+<tr><td>3 apr</td><td>Goede Vrijdag</td></tr>
+<tr><td>6 apr</td><td>Tweede Paasdag</td></tr>
+<tr><td>1 mei</td><td>Dag van de Arbeid</td></tr>
+<tr><td>4 mei</td><td>Cassinga-dag</td></tr>
+<tr><td>14 mei</td><td>Hemelvaartsdag</td></tr>
+<tr><td>25 mei</td><td>Afrikadag</td></tr>
+<tr><td>28 mei</td><td>Genocide Remembrance Day (sinds 2025)</td></tr>
+<tr><td>26 aug</td><td>Heldendag</td></tr>
+<tr><td>10 dec</td><td>Dag van de Mensenrechten</td></tr>
+<tr><td>25 dec</td><td>Kerstmis</td></tr>
+<tr><td>26 dec</td><td>Familiedag</td></tr>
+</table>
+<p class="small">Valt een feestdag op zondag, dan is de maandag erna meestal ook vrij. Op feestdagen en in de Namibische schoolvakanties (o.a. rond Pasen en december) zijn campings en lodges extra druk, en winkels kunnen korter open zijn.</p>
+<h3>Evenementen</h3>
+<ul>
+<li><strong>Windhoek Karneval (WIKA)</strong> – voorjaar (data wisselen per jaar).</li>
+<li><strong>Herero-dag</strong> in Okahandja – eind augustus, rond 26 augustus.</li>
+<li><strong>Oktoberfest</strong> – oktober in Windhoek, ook in Swakopmund.</li>
+<li><strong>Bank Windhoek Arts Festival</strong> – rond februari; <strong>Enjando Street Festival</strong> in Windhoek – rond maart.</li>
+</ul>
+<p class="note">Datums van evenementen wisselen per jaar. Controleer altijd de actuele agenda.</p>`,
+  },
+  {
+    id: 'grenzen', icon: '🛃', title: 'Grensovergangen & buurlanden',
+    body: `
+<ul>
+<li><strong>Zuid-Afrika:</strong> Noordoewer/Vioolsdrif (B1, richting Kaapstad) en Ariamsvlei/Nakop (B3, richting Upington).</li>
+<li><strong>Botswana:</strong> Trans-Kalahari (Buitepos/Mamuno, bij Gobabis), Mohembo (bij Divundu, richting Okavangodelta) en Ngoma Bridge (bij Katima Mulilo, richting Chobe NP).</li>
+<li><strong>Zambia:</strong> Wenela/Sesheke bij Katima Mulilo (richting Victoria Falls via Livingstone).</li>
+<li><strong>Angola:</strong> o.a. Oshikango/Santa Clara – voor Nederlanders gelden aparte visumregels.</li>
+</ul>
+<p><strong>Met een huurauto de grens over?</strong> Je hebt een schriftelijke toestemmingsbrief van de verhuurder nodig (vaak tegen betaling) en betaalt bij de grens een <em>Cross Border Charge</em>/wegenbelasting. Controleer ook de verzekering in het buurland.</p>
+<p><strong>Victoria Falls</strong> (Zimbabwe/Zambia) is vanaf Katima Mulilo goed bereikbaar en wordt vaak gecombineerd met Chobe (Botswana).</p>
+<p class="note">Openingstijden van grensposten verschillen (sommige alleen overdag). Controleer de actuele tijden.</p>`,
+  },
+  {
+    id: 'kamperen', icon: '⛺', title: 'Kamperen & daktent',
+    body: `
+<ul>
+<li>Namibië is een van de beste kampeerlanden ter wereld: campings hebben vaak een eigen plek met <strong>braai</strong> (barbecue), schaduwboom, kraan en soms een eigen sanitairblokje.</li>
+<li>Veel reizigers huren een <strong>4x4 met daktent</strong>, inclusief koelkast, kookspullen en extra tank. Oefen het opzetten van de tent op de eerste dag bij daglicht.</li>
+<li><strong>Boek vooruit</strong> in het hoogseizoen (jul–okt en december), vooral binnen nationale parken (Sesriem, Etosha).</li>
+<li>Koop <strong>brandhout of houtskool</strong> en aanmaakblokjes bij supermarkten en tankstations. Verzamel geen hout in parken.</li>
+<li>Neem altijd extra <strong>water</strong> (minimaal 20 liter) mee.</li>
+<li>Het kan in de woestijn \'s nachts <strong>onder nul</strong> gaan (jun–aug): neem warme slaapzakken mee.</li>
+<li>Laat <strong>geen eten</strong> buiten of in de tent liggen: jakhalzen, hyena\'s en bavianen zijn slim. Zet koelboxen in de auto.</li>
+<li>Kijk 's nachts met een zaklamp om je heen voordat je naar het sanitair loopt, en sluit je tent goed.</li>
+<li>Neem je afval mee ("leave no trace").</li>
+</ul>`,
+  },
+  {
+    id: 'wildtips', icon: '🔭', title: 'Tips voor wild spotten',
+    body: `
+<ul>
+<li><strong>Vroeg en laat:</strong> dieren zijn het actiefst rond zonsopkomst en het einde van de middag. Midden op de dag rusten ze in de schaduw.</li>
+<li><strong>Waterpoelen:</strong> ga in de droge tijd een uur bij een waterpoel staan in plaats van rond te rijden. Geduld wordt bijna altijd beloond.</li>
+<li><strong>Let op signalen:</strong> starende of alarmroepende springbokken, cirkelende gieren of stilstaande auto\'s wijzen vaak op roofdieren.</li>
+<li><strong>Langzaam rijden</strong> (20–30 km/u) en regelmatig stoppen. Scan de schaduw onder bomen.</li>
+<li><strong>Verrekijker</strong> voor iedereen in de auto, en het waarnemingsboek in de kampen (sightings book) raadplegen.</li>
+<li><strong>Houd afstand</strong>, zet je motor uit bij dieren dichtbij en blokkeer nooit hun weg naar het water. Bij olifanten: rustig achteruit als ze hun oren spreiden of schudden.</li>
+<li><strong>Stilte:</strong> geen harde muziek of geschreeuw. Voer nooit dieren.</li>
+</ul>`,
+  },
+  {
+    id: 'fotografie', icon: '📸', title: 'Fotografietips',
+    body: `
+<ul>
+<li><strong>Gouden uur:</strong> het zachte licht net na zonsopkomst en vlak voor zonsondergang geeft de rode duinen hun gloed.</li>
+<li><strong>Lenzen:</strong> een telezoom (minimaal 300–400 mm) voor wild, een groothoek voor landschappen en sterren.</li>
+<li><strong>Stof:</strong> wissel lenzen in de auto met de ramen dicht. Neem een blaasbalg en microvezeldoekjes mee.</li>
+<li><strong>Vanuit de auto:</strong> een rijstzak of bonenzak op het raam werkt als stabiel statief.</li>
+<li><strong>Sterren:</strong> statief, groothoek (f/2.8 of lichtsterker), 15–25 seconden, ISO 1600–6400. Plan rond nieuwe maan.</li>
+<li><strong>Drones</strong> zijn in nationale parken verboden zonder vergunning. Ook elders gelden strenge regels (registratie bij de luchtvaartautoriteit).</li>
+<li><strong>Mensen</strong> altijd eerst om toestemming vragen. Fotografeer geen overheidsgebouwen, politie of militairen.</li>
+<li>Maak elke dag een <strong>back-up</strong> van je foto\'s, en verzamel je mooiste dierenfoto\'s in je collectieboek in deze app!</li>
+</ul>`,
+  },
+  {
+    id: 'afstanden', icon: '🛣️', title: 'Afstanden & rijtijden',
+    body: `
+<p>Namibië is groot en veel wegen zijn gravel. Reken op een gemiddelde snelheid van ca. 60–80 km/u inclusief stops, en plan bij voorkeur niet meer dan ca. 400–450 km per dag.</p>
+<table class="tbl">
+<tr><th>Route</th><th>Ca. km</th><th>Ca. rijtijd</th></tr>
+<tr><td>Windhoek → Sesriem</td><td>310</td><td>4–5 u</td></tr>
+<tr><td>Sesriem → Sossusvlei (parkeerplaats)</td><td>60</td><td>1 u</td></tr>
+<tr><td>Sesriem → Swakopmund (via Solitaire)</td><td>350</td><td>5–6 u</td></tr>
+<tr><td>Windhoek → Swakopmund</td><td>360</td><td>4 u (asfalt)</td></tr>
+<tr><td>Swakopmund → Twyfelfontein</td><td>ca. 400</td><td>5–6 u</td></tr>
+<tr><td>Twyfelfontein → Okaukuejo (Etosha)</td><td>ca. 300</td><td>4–5 u</td></tr>
+<tr><td>Etosha → Windhoek</td><td>ca. 420–450</td><td>5 u (asfalt)</td></tr>
+<tr><td>Windhoek → Fish River Canyon</td><td>ca. 700</td><td>8 u</td></tr>
+</table>
+<p class="note">Indicatief – de werkelijke tijd hangt af van wegdek, weer, wegwerkzaamheden en stops. De reisplanner in deze app geeft een schatting per etappe.</p>`,
   },
 ];
 

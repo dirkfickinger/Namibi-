@@ -345,7 +345,7 @@ function sanitizeKV(key, v) {
   if (key === 'customAnimals') return arr(v, 500).filter(a => a && /^c_[A-Za-z0-9_-]{1,62}$/.test(a.id)).map(a => ({
     id: a.id, name: str(a.name, 80) || 'Onbekend', sci: str(a.sci, 120), emoji: str(a.emoji, 8) || '🐾',
     cat: CATS.includes(a.cat) ? a.cat : 'eigen', rarity: 2, custom: true, where: '', fact: '' }));
-  if (key === 'visited' || key === 'wishlist') return ids(v);
+  if (key === 'visited' || key === 'wishlist' || key === 'actWish' || key === 'actDone') return ids(v);
   if (key === 'bookings') return arr(v, 500).filter(b => b && id(b.id)).map(b => ({
     id: b.id, name: str(b.name, 120), place: str(b.place, 120), checkin: date(b.checkin), checkout: date(b.checkout),
     ref: str(b.ref, 80), phone: str(b.phone, 40), note: str(b.note, 2000) }));
@@ -361,7 +361,11 @@ function sanitizeBackup(d) {
   const out = { trips: [], entries: [], sightings: [], kv: [], photos: [] };
   for (const t of arr(d.trips)) {
     if (!t || !id(t.id)) continue;
-    out.trips.push({ id: t.id, name: str(t.name, 120) || 'Reis', start: date(t.start) || date(t.end), end: date(t.end) || date(t.start), who: str(t.who, 200), created: time(t.created) });
+    const plan = arr(t.plan, 100).filter(x => x && typeof x === 'object').map(x => ({
+      id: id(x.id) || uid(), ref: typeof x.ref === 'string' && /^(a:[A-Za-z0-9_-]{1,64}|t:[^<>"']{1,60})?$/.test(x.ref) ? x.ref : '',
+      name: str(x.name, 80) || 'Stop', ...coords(x), nights: Math.round(num(x.nights, 0, 60) ?? 1), stay: str(x.stay, 120), note: str(x.note, 2000),
+    })).filter(x => x.lat !== undefined);
+    out.trips.push({ id: t.id, name: str(t.name, 120) || 'Reis', start: date(t.start) || date(t.end), end: date(t.end) || date(t.start), who: str(t.who, 200), plan, created: time(t.created) });
   }
   for (const e of arr(d.entries, 20000)) {
     if (!e || !id(e.id) || !id(e.tripId)) continue;

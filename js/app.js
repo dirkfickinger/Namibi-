@@ -1,6 +1,7 @@
 import { db, uid, savePhoto, photoURL, deletePhoto, exportBackup, importBackup, readBackup, backupIsEncrypted, lock, migrateCovers } from './db.js';
 import { ANIMALS, CATEGORIES } from './data/animals.js';
-import { REGIONS, ATTRACTIONS, ACCOMMODATIONS, SUPERMARKET_CHAINS, SUPERMARKETS } from './data/places.js';
+import { REGIONS, ATTRACTIONS, ACCOMMODATIONS, SUPERMARKET_CHAINS, SUPERMARKETS, TOWNS, TEMPLATES } from './data/places.js';
+import { ACTIVITIES, ACT_CATS } from './data/activities.js';
 import { FACTS, SECTIONS, EMERGENCY, EMERGENCY_NOTE, PHRASES, PACKING, TIPS } from './data/info.js';
 import { BORDERS } from './data/borders.js';
 
@@ -233,6 +234,7 @@ route('/', async () => {
   }
   const tonight = bookings.find(b => b.checkin && b.checkin <= t && (!b.checkout || t < b.checkout));
   const tip = TIPS[(new Date().getDate() + new Date().getMonth()) % TIPS.length];
+  const todayStop = trip && t >= trip.start && t <= trip.end ? stopOnDate(trip, t) : null;
 
   const recent = (await db.all('sightings')).sort((a, b) => (b.created || 0) - (a.created || 0)).slice(0, 6);
   const recentHtml = recent.length ? `<div class="gallery">${recent.map(s => {
@@ -250,7 +252,11 @@ route('/', async () => {
       <div class="tree" aria-hidden="true">🌳</div>
     </section>
 
-    ${tonight ? `<a class="card tight row" href="#/ontdek/overnachten" style="text-decoration:none;color:inherit"><span style="font-size:1.6rem">🛏️</span><div><div class="small muted">Vannacht slaap je in</div><b>${esc(tonight.name)}</b>${tonight.place ? ` <span class="muted">· ${esc(tonight.place)}</span>` : ''}</div></a>` : ''}
+    ${todayStop ? `<a class="card tight" href="#/reis/${encodeURIComponent(trip.id)}/plan" style="display:block;text-decoration:none;color:inherit">
+      <div class="small muted">📍 Vandaag volgens je reisplan</div><b>${esc(todayStop.stop.name)}</b>${todayStop.stop.stay ? ` <span class="muted">· 🛏️ ${esc(todayStop.stop.stay)}</span>` : ''}
+      ${todayStop.next && todayStop.stop.leave === addDays(t, 1) ? `<div class="small" style="margin-top:4px">Morgen: → ${esc(todayStop.next.name)} (ca. ${todayStop.stop.km} km, ${fmtHours(todayStop.stop.km)})</div>` : ''}
+      ${todayStop.stop.nights === 0 && todayStop.next ? `<div class="small" style="margin-top:4px">Vandaag door naar ${esc(todayStop.next.name)} (ca. ${todayStop.stop.km} km)</div>` : ''}</a>` : ''}
+    ${!todayStop && tonight ? `<a class="card tight row" href="#/ontdek/overnachten" style="text-decoration:none;color:inherit"><span style="font-size:1.6rem">🛏️</span><div><div class="small muted">Vannacht slaap je in</div><b>${esc(tonight.name)}</b>${tonight.place ? ` <span class="muted">· ${esc(tonight.place)}</span>` : ''}</div></a>` : ''}
 
     <div class="stats">
       <a class="stat" href="#/collectie"><b>${got}<small style="font-size:.8rem;color:var(--muted)">/${animals.length}</small></b><span>Dieren</span></a>
@@ -261,11 +267,11 @@ route('/', async () => {
     <div class="quick">
       <a href="#/reis/nieuw"><span class="ico">✍️</span>Verhaal</a>
       <a href="#/spot"><span class="ico">📸</span>Dier gespot</a>
+      <a href="${trip ? `#/reis/${encodeURIComponent(trip.id)}/plan` : '#/reis'}"><span class="ico">🗺️</span>Reisplan</a>
+      <a href="#/ontdek/activiteiten"><span class="ico">🎯</span>Activiteiten</a>
       <a href="#/paklijst"><span class="ico">🎒</span>Paklijst</a>
       <a href="#/nood"><span class="ico">🆘</span>Nood</a>
-      <a href="#/ontdek/kaart"><span class="ico">🗺️</span>Kaart</a>
-      <a href="#/ontdek/overnachten"><span class="ico">🛏️</span>Overnachten</a>
-      <a href="#/ontdek/supermarkten"><span class="ico">🛒</span>Winkels</a>
+      <a href="#/ontdek/kaart"><span class="ico">🧭</span>Kaart</a>
       <a href="#/info/geld"><span class="ico">💱</span>Valuta</a>
     </div>
 
@@ -354,7 +360,7 @@ function tripForm(trip) {
     trip.who = $('#who', s.root).value.trim();
     await db.put('trips', trip);
     s.close('ok');
-    if (isNew) location.hash = '#/reis/' + trip.id; else render();
+    if (isNew) location.hash = '#/reis/' + encodeURIComponent(trip.id) + '/plan'; else render();
   };
   $('#del', s.root)?.addEventListener('click', async () => {
     s.close('ok');
@@ -377,7 +383,7 @@ route('/reis/:id', async id => {
   $('#topActions').innerHTML = `<button class="icon-btn" id="editTrip" aria-label="Reis bewerken">✏️</button>`;
   $('#editTrip').onclick = () => tripForm(trip);
 
-  view.innerHTML = `
+  view.innerHTML = tripTabs(trip, 'dagboek') + `
     <div class="card">
       <div class="muted small">${fmtDateLong(trip.start)} – ${fmtDateLong(trip.end)}</div>
       ${trip.who ? `<div class="small">👥 ${esc(trip.who)}</div>` : ''}
@@ -619,7 +625,7 @@ async function celebrate(animal) {
 }
 
 // ============ ONTDEK ============
-const ontdekTabs = [['bezienswaardigheden', '📍 Bezienswaardig'], ['overnachten', '🛏️ Overnachten'], ['supermarkten', '🛒 Supermarkten'], ['kaart', '🗺️ Kaart']];
+const ontdekTabs = [['bezienswaardigheden', '📍 Bezienswaardig'], ['activiteiten', '🎯 Activiteiten'], ['overnachten', '🛏️ Overnachten'], ['supermarkten', '🛒 Supermarkten'], ['kaart', '🗺️ Kaart']];
 let regionFilter = 'alle';
 const tabsHtml = active => `<div class="chips">${ontdekTabs.map(([id, nm]) => `<a class="chip ${active === id ? 'active' : ''}" href="#/ontdek/${id}" style="text-decoration:none">${nm}</a>`).join('')}</div>`;
 const regionChips = () => `<div class="chips">${[['alle', 'Heel Namibië'], ...REGIONS.map(r => [r.id, r.name])].map(([id, nm]) => `<button class="chip ${regionFilter === id ? 'active' : ''}" data-r="${id}">${esc(nm)}</button>`).join('')}</div>`;
@@ -657,6 +663,7 @@ route('/plek/:id', async id => {
   const [visited, wish] = await Promise.all([db.getKV('visited', []), db.getKV('wishlist', [])]);
   const v = visited.includes(id), w = wish.includes(id);
   const stays = ACCOMMODATIONS.filter(x => x.region === a.region).slice(0, 4);
+  const acts = nearbyActivities(a, 40);
   const shops = SUPERMARKETS.filter(x => x.region === a.region);
   view.innerHTML = `
     <div class="card">
@@ -668,11 +675,13 @@ route('/plek/:id', async id => {
       <div class="row wrap" style="margin-top:14px">
         <a class="btn" href="${navigator.onLine ? mapsRoute(a.name + ', Namibia') : nativeMap(a.lat, a.lng, a.name)}" target="_blank" rel="noopener">🧭 Route</a>
         <a class="btn secondary" href="${nativeMap(a.lat, a.lng, a.name)}">📍 Kaart-app</a>
+        <button class="btn secondary" id="toPlan">➕ Reisplan</button>
         <button class="btn secondary" id="visit">${v ? '✓ Bezocht' : 'Markeer als bezocht'}</button>
         <button class="btn secondary" id="wish" aria-label="Wensenlijst">${w ? '♥' : '♡'}</button>
       </div>
     </div>
     <a class="btn secondary block" href="#/reis/nieuw" id="write" style="margin-bottom:14px">✍️ Schrijf hierover in je dagboek</a>
+    ${acts.length ? `<div class="section-title"><h2>Activiteiten hier</h2></div><div class="list">${acts.map(x => `<a class="list-item" href="#/activiteit/${encodeURIComponent(x.id)}"><span class="lead">${actCatOf(x.cat)?.emoji}</span><div class="body"><div class="title">${esc(x.name)}</div><div class="sub">${esc(x.duration)} · ${esc(x.price)}</div></div><span class="chev">›</span></a>`).join('')}</div>` : ''}
     ${stays.length ? `<div class="section-title"><h2>Overnachten in de regio</h2><a class="small" href="#/ontdek/overnachten" id="moreStay">Meer ›</a></div>
       <div class="list">${stays.map(accRow).join('')}</div>` : ''}
     ${shops.length ? `<div class="section-title"><h2>Boodschappen in de regio</h2></div><div class="list">${shops.map(shopRow).join('')}</div>` : ''}
@@ -682,6 +691,7 @@ route('/plek/:id', async id => {
   $('#wish').onclick = () => toggle('wishlist', wish, w);
   $('#moreStay').onclick = () => { regionFilter = a.region; };
   $('#write').onclick = () => sessionStorage.setItem('prefillPlace', a.name);
+  $('#toPlan').onclick = () => addPlaceToPlan({ ref: 'a:' + a.id, name: a.name, lat: a.lat, lng: a.lng });
 }, { tab: 'ontdek', parent: '#/ontdek/bezienswaardigheden' });
 
 const accRow = x => `<div class="list-item" style="cursor:default"><span class="lead">${x.type.includes('Camp') ? '⛺' : x.type === 'Hostel' ? '🎒' : '🏨'}</span>
@@ -758,28 +768,35 @@ route('/ontdek/supermarkten', async () => {
   bindRegionChips();
 }, { tab: 'ontdek', title: 'Supermarkten' });
 
-const TOWNS = [
-  ['Windhoek', -22.56, 17.08], ['Swakopmund', -22.68, 14.53], ['Walvis Bay', -22.96, 14.51, 'left'], ['Lüderitz', -26.65, 15.16, 'left'],
-  ['Keetmanshoop', -26.58, 18.13], ['Mariental', -24.63, 17.96], ['Sesriem', -24.49, 15.80, 'left'], ['Otjiwarongo', -20.46, 16.65],
-  ['Outjo', -20.11, 16.15, 'left'], ['Tsumeb', -19.24, 17.71], ['Opuwo', -18.06, 13.84], ['Rundu', -17.92, 19.77], ['Katima Mulilo', -17.50, 24.27],
-];
+// ============ Plekken, afstanden & basiskaart ============
+function placeByRef(ref) {
+  if (typeof ref !== 'string') return null;
+  if (ref.startsWith('a:')) { const a = ATTRACTIONS.find(x => x.id === ref.slice(2)); return a ? { ref, name: a.name, lat: a.lat, lng: a.lng } : null; }
+  if (ref.startsWith('t:')) { const t = TOWNS.find(x => x.name === ref.slice(2)); return t ? { ref, name: t.name, lat: t.lat, lng: t.lng } : null; }
+  return null;
+}
+// Hemelsbrede afstand × wegfactor. Geijkt op bekende routes (bijv. Windhoek–Sesriem ca. 310 km).
+const ROAD_FACTOR = 1.35, AVG_KMH = 70;
+function kmBetween(a, b) {
+  const R = 6371, rad = x => x * Math.PI / 180;
+  const dLat = rad(b.lat - a.lat), dLng = rad(b.lng - a.lng);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+const roadKm = (a, b) => Math.round(kmBetween(a, b) * ROAD_FACTOR / 5) * 5;
+const fmtHours = km => { const h = Math.round(km / AVG_KMH * 2) / 2; return h < 0.5 ? '< ½ u' : `${String(h).replace('.', ',')} u`; };
+const addDays = (iso, n) => { const d = parseISO(iso); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const regionOfPoint = p => ATTRACTIONS.reduce((best, a) => (kmBetween(p, a) < kmBetween(p, best) ? a : best), ATTRACTIONS[0]).region;
+const activityPlace = act => placeByRef(act.at);
+const nearbyActivities = (p, maxKm = 80) => ACTIVITIES.filter(a => { const q = activityPlace(a); return q && kmBetween(p, q) <= maxKm; });
 
-route('/ontdek/kaart', async () => {
-  view.innerHTML = tabsHtml('kaart') + `<div id="map"><div class="empty">Kaart laden…</div></div>
-    <div class="row wrap small muted" style="margin-top:8px;gap:12px">
-      <span><span style="color:#c4561f">●</span> Must-see</span><span><span style="color:#d9a520">●</span> Bezienswaardigheid</span>
-      <span><span style="color:#5d7a3a">●</span> Bezocht</span><span><span style="color:#2f6f8f">●</span> Mijn verhalen & waarnemingen</span></div>
-    <p class="small muted">${navigator.onLine
-      ? 'Gebieden die je nu bekijkt worden bewaard en zijn later ook offline zichtbaar.'
-      : '📴 Offline: je ziet de basiskaart plus eerder bekeken gebieden.'} Locaties zijn indicatief – gebruik "Route" of je kaart-app om te navigeren.</p>`;
-  let L;
-  try { L = await loadLeaflet(); } catch {
-    $('#map').innerHTML = '<div class="empty"><div class="big">🗺️</div>De kaart kon niet geladen worden.</div>';
-    return;
-  }
-  $('#map').innerHTML = '';
-  const map = L.map('map', { zoomControl: true, minZoom: 4, maxZoom: 17 }).setView([-22.3, 17.2], 5);
-  // Offline basiskaart: landsgrenzen onder de (online) kaarttegels.
+const MAP_TOWNS = { Windhoek: 'right', Swakopmund: 'right', 'Walvis Bay': 'left', 'Lüderitz': 'left', Keetmanshoop: 'right', Mariental: 'right',
+  Sesriem: 'left', Otjiwarongo: 'right', Outjo: 'left', Tsumeb: 'right', Opuwo: 'right', Rundu: 'right', 'Katima Mulilo': 'right' };
+
+async function makeBaseMap(el, opts = {}) {
+  const L = await loadLeaflet();
+  el.innerHTML = '';
+  const map = L.map(el, { zoomControl: true, minZoom: 4, maxZoom: 17 }).setView([-22.3, 17.2], 5);
   map.createPane('base'); map.getPane('base').style.zIndex = 150;
   L.geoJSON(BORDERS, {
     pane: 'base', interactive: false,
@@ -787,11 +804,54 @@ route('/ontdek/kaart', async () => {
       ? { color: '#8a3a12', weight: 2, fillColor: '#f1c58f', fillOpacity: 1 }
       : { color: '#b9a690', weight: 1, fillColor: '#e9e1d6', fillOpacity: 1 },
   }).addTo(map);
-  for (const [name, lat, lng, dir = 'right'] of TOWNS) {
-    L.circleMarker([lat, lng], { pane: 'base', radius: 3, color: '#2b211a', weight: 1, fillColor: '#2b211a', fillOpacity: 1, interactive: false })
-      .bindTooltip(name, { permanent: true, direction: dir, className: 'town-label', offset: [dir === 'left' ? -4 : 4, 0] }).addTo(map);
+  for (const t of TOWNS) {
+    const dir = MAP_TOWNS[t.name];
+    if (!dir) continue;
+    L.circleMarker([t.lat, t.lng], { pane: 'base', radius: 3, color: '#2b211a', weight: 1, fillColor: '#2b211a', fillOpacity: 1, interactive: false })
+      .bindTooltip(t.name, { permanent: true, direction: dir, className: 'town-label', offset: [dir === 'left' ? -4 : 4, 0] }).addTo(map);
   }
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, attribution: '© OpenStreetMap · grenzen: Natural Earth' }).addTo(map);
+  if (opts.locate !== false) {
+    const locBtn = L.control({ position: 'topright' });
+    locBtn.onAdd = () => { const b = L.DomUtil.create('button', 'btn sm'); b.textContent = '📍 Ik'; b.onclick = async e => { L.DomEvent.stopPropagation(e); try { const p = await getLocation(); L.circleMarker([p.lat, p.lng], { radius: 8, color: '#fff', weight: 3, fillColor: '#1a73e8', fillOpacity: 1 }).addTo(map); map.setView([p.lat, p.lng], 10); } catch { toast('Locatie niet gevonden'); } }; return b; };
+    locBtn.addTo(map);
+  }
+  setTimeout(() => map.invalidateSize(), 100);
+  const prev = currentCleanup;
+  currentCleanup = () => { prev?.(); map.remove(); };
+  return { L, map };
+}
+
+function drawRoute(L, map, plan, { fit = true, numbered = true } = {}) {
+  const pts = plan.filter(s => Number.isFinite(s.lat) && Number.isFinite(s.lng));
+  if (!pts.length) return;
+  L.polyline(pts.map(s => [s.lat, s.lng]), { color: '#8a3a12', weight: 3, opacity: .85, dashArray: '6 6' }).addTo(map);
+  pts.forEach((s, i) => {
+    const icon = L.divIcon({ className: 'pin', html: numbered ? String(i + 1) : '', iconSize: [24, 24], iconAnchor: [12, 12] });
+    L.marker([s.lat, s.lng], { icon }).addTo(map).bindPopup(`<b>${i + 1}. ${esc(s.name)}</b>${s.nights ? `<br>${s.nights} ${s.nights === 1 ? 'nacht' : 'nachten'}` : ''}`);
+  });
+  if (fit) map.fitBounds(L.latLngBounds(pts.map(s => [s.lat, s.lng])).pad(0.2), { maxZoom: 9 });
+}
+
+// Herteken zonder naar boven te springen (prettig bij het aanpassen van het plan).
+async function rerender() { const y = window.scrollY; await render(); window.scrollTo(0, y); }
+
+// ============ Kaart ============
+route('/ontdek/kaart', async () => {
+  view.innerHTML = tabsHtml('kaart') + `<div id="map"><div class="empty">Kaart laden…</div></div>
+    <div class="row wrap small muted" style="margin-top:8px;gap:12px">
+      <span><span style="color:#c4561f">●</span> Must-see</span><span><span style="color:#d9a520">●</span> Bezienswaardigheid</span>
+      <span><span style="color:#5d7a3a">●</span> Bezocht</span><span><span style="color:#2f6f8f">●</span> Mijn verhalen & waarnemingen</span><span><span style="color:#8a3a12">- -</span> Mijn reisplan</span></div>
+    <p class="small muted">${navigator.onLine
+      ? 'Gebieden die je nu bekijkt worden bewaard en zijn later ook offline zichtbaar.'
+      : '📴 Offline: je ziet de basiskaart plus eerder bekeken gebieden.'} Locaties zijn indicatief – gebruik "Route" of je kaart-app om te navigeren.</p>`;
+  let L, map;
+  try { ({ L, map } = await makeBaseMap($('#map'))); } catch {
+    $('#map').innerHTML = '<div class="empty"><div class="big">🗺️</div>De kaart kon niet geladen worden.</div>';
+    return;
+  }
+  const trip = await currentTrip();
+  if (trip?.plan?.length) drawRoute(L, map, trip.plan, { fit: false, numbered: true });
   const visited = await db.getKV('visited', []);
   for (const a of ATTRACTIONS) {
     const color = visited.includes(a.id) ? '#5d7a3a' : a.must ? '#c4561f' : '#d9a520';
@@ -799,14 +859,303 @@ route('/ontdek/kaart', async () => {
       .addTo(map).bindPopup(`<b>${esc(a.name)}</b><br>${esc(a.type)}<br><a href="#/plek/${encodeURIComponent(a.id)}">Meer info ›</a>`);
   }
   const animals = await allAnimals();
-  for (const e of await db.all('entries')) if (e.lat) L.circleMarker([e.lat, e.lng], { radius: 6, color: '#fff', weight: 2, fillColor: '#2f6f8f', fillOpacity: 1 }).addTo(map).bindPopup(`✍️ <b>${esc(e.title || 'Verhaal')}</b><br>${fmtDate(e.date)}`);
-  for (const s of await db.all('sightings')) if (s.lat) { const an = animals.find(x => x.id === s.animalId); L.circleMarker([s.lat, s.lng], { radius: 6, color: '#fff', weight: 2, fillColor: '#2f6f8f', fillOpacity: 1 }).addTo(map).bindPopup(`${esc(an?.emoji || '🐾')} <b>${esc(an?.name || '')}</b><br>${fmtDate(s.date)}`); }
-  const locBtn = L.control({ position: 'topright' });
-  locBtn.onAdd = () => { const b = L.DomUtil.create('button', 'btn sm'); b.textContent = '📍 Ik'; b.onclick = async e => { L.DomEvent.stopPropagation(e); try { const p = await getLocation(); L.circleMarker([p.lat, p.lng], { radius: 8, color: '#fff', weight: 3, fillColor: '#1a73e8', fillOpacity: 1 }).addTo(map); map.setView([p.lat, p.lng], 10); } catch { toast('Locatie niet gevonden'); } }; return b; };
-  locBtn.addTo(map);
-  setTimeout(() => map.invalidateSize(), 100);
-  currentCleanup = () => map.remove();
+  for (const e of await db.all('entries')) if (Number.isFinite(e.lat)) L.circleMarker([e.lat, e.lng], { radius: 6, color: '#fff', weight: 2, fillColor: '#2f6f8f', fillOpacity: 1 }).addTo(map).bindPopup(`✍️ <b>${esc(e.title || 'Verhaal')}</b><br>${fmtDate(e.date)}`);
+  for (const s of await db.all('sightings')) if (Number.isFinite(s.lat)) { const an = animals.find(x => x.id === s.animalId); L.circleMarker([s.lat, s.lng], { radius: 6, color: '#fff', weight: 2, fillColor: '#2f6f8f', fillOpacity: 1 }).addTo(map).bindPopup(`${esc(an?.emoji || '🐾')} <b>${esc(an?.name || '')}</b><br>${fmtDate(s.date)}`); }
 }, { tab: 'ontdek', title: 'Kaart' });
+
+// ============ Reisplanner ============
+const tripTabs = (trip, active) => `<div class="seg">
+  <a href="#/reis/${encodeURIComponent(trip.id)}/plan" class="${active === 'plan' ? 'active' : ''}">🗺️ Reisplan</a>
+  <a href="#/reis/${encodeURIComponent(trip.id)}" class="${active === 'dagboek' ? 'active' : ''}">📔 Dagboek</a></div>`;
+
+function planSchedule(trip, plan) {
+  let night = 0;
+  return plan.map((s, i) => {
+    const arrive = addDays(trip.start, night);
+    night += Math.max(0, s.nights || 0);
+    const leave = addDays(trip.start, night);
+    const next = plan[i + 1];
+    const km = next ? roadKm(s, next) : 0;
+    return { ...s, arrive, leave, km };
+  });
+}
+
+function stopOnDate(trip, iso) {
+  if (!trip?.plan?.length) return null;
+  const sched = planSchedule(trip, trip.plan);
+  const i = sched.findIndex(s => s.arrive <= iso && (iso < s.leave || (s.nights === 0 && s.arrive === iso)));
+  return i < 0 ? null : { stop: sched[i], next: sched[i + 1], index: i };
+}
+
+route('/reis/:id/plan', async id => {
+  const trip = await db.get('trips', id);
+  if (!trip) { location.hash = '#/reis'; return; }
+  setTitle(trip.name);
+  $('#topActions').innerHTML = `<button class="icon-btn" id="editTrip" aria-label="Reis bewerken">✏️</button>`;
+  $('#editTrip').onclick = () => tripForm(trip);
+  const plan = Array.isArray(trip.plan) ? trip.plan : [];
+  const save = async () => { trip.plan = plan; await db.put('trips', trip); await rerender(); };
+  const sched = planSchedule(trip, plan);
+  const tripNights = daysBetween(trip.start, trip.end);
+  const planNights = plan.reduce((n, s) => n + (s.nights || 0), 0);
+  const totalKm = sched.reduce((n, s) => n + s.km, 0);
+  const longest = sched.reduce((m, s) => Math.max(m, s.km), 0);
+
+  const templatesHtml = `<div class="section-title"><h2>Voorbeeldroutes</h2></div>
+    <p class="small muted">Begin met een bewezen route en pas hem daarna aan.</p>
+    ${TEMPLATES.map(t => `<div class="card tight"><div class="row"><div style="flex:1"><b>${esc(t.name)}</b> <span class="tag">${t.nights} nachten</span>
+      <div class="small muted">${esc(t.desc)}</div><div class="small" style="margin-top:4px">${t.stops.map(s => esc(placeByRef(s[0])?.name || '')).join(' → ')}</div></div></div>
+      <button class="btn secondary sm" data-tpl="${esc(t.id)}" style="margin-top:8px">Gebruik deze route</button></div>`).join('')}`;
+
+  if (!plan.length) {
+    view.innerHTML = tripTabs(trip, 'plan') + `
+      <div class="empty" style="padding-bottom:10px"><div class="big">🗺️</div><h2>Stippel je route uit</h2>
+        <p>Voeg de plekken toe waar je heen wilt, in de volgorde waarin je reist. De app rekent de data, afstanden en rijtijden voor je uit.</p>
+        <button class="btn" id="addStop">＋ Eerste stop toevoegen</button></div>` + templatesHtml;
+  } else {
+    view.innerHTML = tripTabs(trip, 'plan') + `
+      <div class="card">
+        <div class="stats" style="margin:0">
+          <div class="stat"><b>${plan.length}</b><span>Stops</span></div>
+          <div class="stat"><b>${planNights}<small style="font-size:.8rem;color:var(--muted)">/${tripNights}</small></b><span>Nachten</span></div>
+          <div class="stat"><b>~${totalKm.toLocaleString('nl-NL')}</b><span>Km (schatting)</span></div>
+        </div>
+        ${planNights !== tripNights ? `<div class="note" style="margin-top:10px">ℹ️ Je plan telt ${planNights} nachten, je reis ${tripNights} nachten (${fmtDate(trip.start, { day: 'numeric', month: 'short' })} – ${fmtDate(trip.end, { day: 'numeric', month: 'short' })}). Pas het aantal nachten aan.</div>` : ''}
+        ${longest > 450 ? `<div class="note" style="margin-top:10px">⚠️ Je langste rijdag is ca. ${longest} km. Plan bij voorkeur niet meer dan ca. 400–450 km per dag en rijd niet in het donker.</div>` : ''}
+      </div>
+      <div id="planMap" style="height:42vh;min-height:260px;border-radius:var(--radius);overflow:hidden;border:1px solid var(--line);margin-bottom:6px"></div>
+      <p class="small muted" style="margin:0 2px 12px">Afstanden en rijtijden zijn schattingen (hemelsbreed × ${String(ROAD_FACTOR).replace('.', ',')}, gemiddeld ${AVG_KMH} km/u).</p>
+      <div class="timeline">${sched.map((s, i) => {
+        const acts = nearbyActivities(s, 60);
+        return `<div class="card tight entry stop" data-i="${i}">
+          <div class="row" style="align-items:flex-start">
+            <span class="num-badge">${i + 1}</span>
+            <div style="flex:1;min-width:0"><b>${esc(s.name)}</b>
+              <div class="small muted">${s.nights ? `${fmtDate(s.arrive, { weekday: 'short', day: 'numeric', month: 'short' })} – ${fmtDate(s.leave, { weekday: 'short', day: 'numeric', month: 'short' })}` : `${fmtDate(s.arrive, { weekday: 'short', day: 'numeric', month: 'short' })} · doorreis`}</div></div>
+            <div class="nights"><button class="icon-btn" data-n="-1" aria-label="Nacht minder">−</button><span>${s.nights}<small> ${s.nights === 1 ? 'nacht' : 'nachten'}</small></span><button class="icon-btn" data-n="1" aria-label="Nacht meer">＋</button></div>
+          </div>
+          ${s.stay ? `<div class="small" style="margin-top:6px">🛏️ ${esc(s.stay)}</div>` : ''}
+          ${s.note ? `<div class="small muted" style="margin-top:4px;white-space:pre-wrap">${esc(s.note)}</div>` : ''}
+          ${acts.length ? `<div class="small" style="margin-top:6px">🎯 In de buurt: ${acts.slice(0, 3).map(a => `<a href="#/activiteit/${encodeURIComponent(a.id)}">${esc(a.name)}</a>`).join(', ')}${acts.length > 3 ? ` <span class="muted">+${acts.length - 3}</span>` : ''}</div>` : ''}
+          <div class="row" style="margin-top:6px;gap:2px">
+            <button class="btn ghost sm" data-mv="-1" ${i === 0 ? 'disabled' : ''} aria-label="Omhoog">↑</button>
+            <button class="btn ghost sm" data-mv="1" ${i === plan.length - 1 ? 'disabled' : ''} aria-label="Omlaag">↓</button>
+            <span class="spacer"></span>
+            <button class="btn ghost sm" data-add-after="${i}">＋ Stop erna</button>
+            <button class="btn ghost sm" data-edit-stop>Bewerken</button>
+          </div>
+        </div>
+        ${s.km ? `<div class="leg">🚙 ca. ${s.km.toLocaleString('nl-NL')} km · ${fmtHours(s.km)} rijden ${s.km > 450 ? '<span class="tag accent">⚠️ lange rijdag</span>' : ''}</div>` : ''}`;
+      }).join('')}</div>
+      <button class="btn block" id="addStop">＋ Stop toevoegen</button>
+      <div class="row wrap" style="margin-top:10px">
+        ${plan.length >= 2 ? `<a class="btn secondary sm" target="_blank" rel="noopener" href="${esc(googleRouteUrl(plan))}">🧭 Open route in Google Maps</a>` : ''}
+        <button class="btn ghost sm" id="clearPlan">Plan leegmaken</button>
+      </div>
+      ${plan.length > 10 ? '<p class="small muted">Google Maps toont maximaal 10 stops; de rest van je route zie je hier in de app.</p>' : ''}
+      <details style="margin-top:14px"><summary class="small" style="cursor:pointer">Voorbeeldroute laden (vervangt je huidige plan)</summary>${templatesHtml}</details>`;
+  }
+
+  // --- interactie ---
+  const stopIndex = el => Number(el.closest('[data-i]')?.dataset.i);
+  view.onclick = async ev => {
+    const t = ev.target.closest('button, a');
+    if (!t) return;
+    if (t.dataset.n) { const i = stopIndex(t); plan[i].nights = Math.min(60, Math.max(0, (plan[i].nights || 0) + Number(t.dataset.n))); return save(); }
+    if (t.dataset.mv) { const i = stopIndex(t), j = i + Number(t.dataset.mv); if (j < 0 || j >= plan.length) return; [plan[i], plan[j]] = [plan[j], plan[i]]; return save(); }
+    if ('editStop' in t.dataset) return stopForm(plan, stopIndex(t), save);
+    if (t.dataset.addAfter !== undefined) return addStopSheet(plan, Number(t.dataset.addAfter) + 1, save, mapRef);
+    if (t.id === 'addStop') return addStopSheet(plan, plan.length, save, mapRef);
+    if (t.id === 'clearPlan') { if (await confirmSheet('Alle stops uit je reisplan verwijderen?', 'Leegmaken')) { plan.length = 0; return save(); } return; }
+    if (t.dataset.tpl) {
+      const tpl = TEMPLATES.find(x => x.id === t.dataset.tpl);
+      if (plan.length && !(await confirmSheet('Je huidige plan vervangen door deze voorbeeldroute?', 'Vervangen'))) return;
+      plan.length = 0;
+      for (const [ref, nights] of tpl.stops) { const p = placeByRef(ref); if (p) plan.push({ id: uid(), ref, name: p.name, lat: p.lat, lng: p.lng, nights, stay: '', note: '' }); }
+      if (tpl.nights !== tripNights) toast(`Let op: deze route telt ${tpl.nights} nachten, je reis ${tripNights}. Pas het aan waar nodig.`, 4000);
+      return save();
+    }
+  };
+
+  // --- kaart ---
+  const mapRef = {};
+  if (plan.length) {
+    try { const { L, map } = await makeBaseMap($('#planMap')); Object.assign(mapRef, { L, map }); drawRoute(L, map, plan); }
+    catch { $('#planMap').innerHTML = '<div class="empty">De kaart kon niet geladen worden.</div>'; }
+  }
+}, { tab: 'reis', parent: '#/reis' });
+
+function googleRouteUrl(plan) {
+  const pts = plan.slice(0, 10).map(s => `${Number(s.lat).toFixed(4)},${Number(s.lng).toFixed(4)}`);
+  const origin = pts[0], destination = pts[pts.length - 1], waypoints = pts.slice(1, -1).join('|');
+  return `https://www.google.com/maps/dir/?api=1&travelmode=driving&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}${waypoints ? `&waypoints=${encodeURIComponent(waypoints)}` : ''}`;
+}
+
+function addStopSheet(plan, index, save, mapRef = {}) {
+  const places = [
+    ...ATTRACTIONS.map(a => ({ ref: 'a:' + a.id, name: a.name, sub: `${a.type} · ${regionName(a.region)}`, lat: a.lat, lng: a.lng })),
+    ...TOWNS.map(t => ({ ref: 't:' + t.name, name: t.name, sub: 'Plaats', lat: t.lat, lng: t.lng })),
+  ];
+  const sh = openSheet(`<h2>Stop toevoegen</h2>
+    <input class="search" id="q" placeholder="Zoek een plek of plaats… (bijv. Etosha)" autocomplete="off">
+    <div class="list" id="res" style="max-height:42vh;overflow-y:auto"></div>
+    <div class="row wrap">
+      <button class="btn secondary sm" id="here">📍 Huidige locatie</button>
+      ${mapRef.map ? '<button class="btn secondary sm" id="pick">🗺️ Kies op de kaart</button>' : ''}
+      <span class="spacer"></span><button class="btn ghost sm" data-close>Sluiten</button>
+    </div>`);
+  const r = sh.root;
+  const prev = plan[index - 1];
+  const draw = q => {
+    const f = q.trim().toLowerCase();
+    let list = places.filter(p => !f || p.name.toLowerCase().includes(f) || p.sub.toLowerCase().includes(f));
+    if (!f && prev) list = list.map(p => ({ ...p, d: kmBetween(prev, p) })).sort((a, b) => a.d - b.d);
+    $('#res', r).innerHTML = list.slice(0, 40).map(p => `<div class="list-item" data-ref="${esc(p.ref)}"><span class="lead">${p.ref.startsWith('t:') ? '🏘️' : '📍'}</span>
+      <div class="body"><div class="title">${esc(p.name)}</div><div class="sub">${esc(p.sub)}${prev ? ` · ca. ${roadKm(prev, p)} km vanaf ${esc(prev.name)}` : ''}</div></div><span class="chev">＋</span></div>`).join('')
+      || '<div class="empty">Niets gevonden. Gebruik "Huidige locatie" of kies op de kaart.</div>';
+  };
+  const add = async stop => { plan.splice(index, 0, { id: uid(), nights: 1, stay: '', note: '', ...stop }); sh.close('ok'); toast(`${stop.name} toegevoegd`); await save(); };
+  $('#q', r).oninput = e => draw(e.target.value);
+  $('#res', r).onclick = e => { const it = e.target.closest('[data-ref]'); if (!it) return; const p = places.find(x => x.ref === it.dataset.ref); add({ ref: p.ref, name: p.name, lat: p.lat, lng: p.lng }); };
+  $('#here', r).onclick = async () => {
+    try { const g = await getLocation(); const name = await askName('Mijn locatie'); if (name !== null) add({ ref: '', name, lat: g.lat, lng: g.lng }); }
+    catch { toast('Locatie niet gevonden.'); }
+  };
+  $('#pick', r)?.addEventListener('click', () => {
+    sh.close('cancel');
+    const { map } = mapRef;
+    $('#planMap').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    toast('Tik op de kaart waar je de stop wilt plaatsen', 4000);
+    map.getContainer().style.cursor = 'crosshair';
+    map.once('click', async e => {
+      map.getContainer().style.cursor = '';
+      const name = await askName('Eigen stop');
+      if (name !== null) { plan.splice(index, 0, { id: uid(), ref: '', name, lat: +e.latlng.lat.toFixed(5), lng: +e.latlng.lng.toFixed(5), nights: 1, stay: '', note: '' }); await save(); }
+    });
+  });
+  draw('');
+  setTimeout(() => $('#q', r).focus(), 50);
+}
+
+function askName(def) {
+  return new Promise(resolve => {
+    let v = null;
+    const sh = openSheet(`<h2>Naam van de stop</h2><input class="input" id="nm" value="${esc(def)}" maxlength="80">
+      <div class="row" style="margin-top:14px"><span class="spacer"></span><button class="btn secondary" data-close>Annuleren</button><button class="btn" id="ok">Toevoegen</button></div>`,
+      { onClose: () => resolve(v) });
+    const inp = $('#nm', sh.root); inp.select();
+    $('#ok', sh.root).onclick = () => { v = inp.value.trim() || def; sh.close('ok'); };
+  });
+}
+
+function stopForm(plan, i, save) {
+  const s = { ...plan[i] };
+  const sh = openSheet(`<h2>${esc(s.name)}</h2>
+    <label class="f">Naam</label><input class="input" id="nm" value="${esc(s.name)}" maxlength="80">
+    <label class="f">Aantal nachten</label><input class="input" id="nights" type="number" inputmode="numeric" min="0" max="60" value="${esc(s.nights)}" style="width:110px">
+    <label class="f">Overnachting</label><input class="input" id="stay" value="${esc(s.stay || '')}" list="accList2" placeholder="Lodge / camping">
+    <datalist id="accList2">${ACCOMMODATIONS.map(a => `<option value="${esc(a.name)}">`).join('')}</datalist>
+    <label class="f">Notities</label><textarea class="input" id="note" style="min-height:80px" placeholder="Bijv. vroeg opstaan voor de zonsopkomst, tanken in Solitaire">${esc(s.note || '')}</textarea>
+    <div class="row wrap" style="margin-top:10px">
+      ${s.ref?.startsWith('a:') ? `<a class="btn secondary sm" href="#/plek/${encodeURIComponent(s.ref.slice(2))}">ℹ️ Over deze plek</a>` : ''}
+      <a class="btn secondary sm" href="${esc(nativeMap(s.lat, s.lng, s.name))}">📍 Kaart-app</a>
+    </div>
+    <div class="row" style="margin-top:18px"><button class="btn danger" id="del">Verwijderen</button><span class="spacer"></span>
+      <button class="btn secondary" data-close>Annuleren</button><button class="btn" id="save">Opslaan</button></div>`);
+  const r = sh.root;
+  $('#save', r).onclick = async () => {
+    Object.assign(plan[i], { name: $('#nm', r).value.trim() || s.name, nights: Math.min(60, Math.max(0, parseInt($('#nights', r).value, 10) || 0)), stay: $('#stay', r).value.trim(), note: $('#note', r).value });
+    sh.close('ok'); await save();
+  };
+  $('#del', r).onclick = async () => { plan.splice(i, 1); sh.close('ok'); await save(); };
+}
+
+async function addPlaceToPlan(place, note = '') {
+  const trip = await currentTrip();
+  if (!trip) { toast('Maak eerst een reis aan in het dagboek.'); location.hash = '#/reis'; return; }
+  trip.plan = Array.isArray(trip.plan) ? trip.plan : [];
+  const near = trip.plan.find(s => kmBetween(s, place) <= 60);
+  if (near && note) {
+    near.note = (near.note ? near.note + '\n' : '') + note;
+    toast(`Toegevoegd aan stop "${near.name}" in je reisplan`);
+  } else if (near && !note) {
+    toast(`${near.name} staat al in je reisplan`);
+    return;
+  } else {
+    trip.plan.push({ id: uid(), ref: place.ref || '', name: place.name, lat: place.lat, lng: place.lng, nights: 1, stay: '', note });
+    toast(`${place.name} toegevoegd aan je reisplan`);
+  }
+  await db.put('trips', trip);
+}
+
+// ============ Activiteiten ============
+let actCat = 'alle';
+const actCatOf = id => ACT_CATS.find(c => c.id === id);
+
+route('/ontdek/activiteiten', async () => {
+  const [wish, done] = await Promise.all([db.getKV('actWish', []), db.getKV('actDone', [])]);
+  const list = ACTIVITIES.filter(a => (actCat === 'alle' || (actCat === 'wish' ? wish.includes(a.id) : a.cat === actCat))
+    && (regionFilter === 'alle' || regionOfPoint(activityPlace(a)) === regionFilter));
+  view.innerHTML = tabsHtml('activiteiten') + `
+    <div class="chips">${[['alle', 'Alles'], ['wish', `♥ Wil ik doen (${wish.length})`], ...ACT_CATS.map(c => [c.id, `${c.emoji} ${c.name}`])].map(([id, nm]) =>
+      `<button class="chip ${actCat === id ? 'active' : ''}" data-ac="${esc(id)}">${esc(nm)}</button>`).join('')}</div>
+    ${regionChips()}
+    <input class="search" id="q" placeholder="Zoek een activiteit… (bijv. ballon, kajak)">
+    <div class="small muted" style="margin:-4px 2px 10px">${done.length} van ${ACTIVITIES.length} activiteiten gedaan</div>
+    <div class="list" id="res"></div>
+    <p class="small muted">Prijs per persoon: € &lt; €50 · €€ €50–150 · €€€ €150–400 · €€€€ &gt; €400. Indicatief – boek bij voorkeur via je accommodatie of een erkende lokale operator.</p>`;
+  const draw = q => {
+    const f = q.trim().toLowerCase();
+    $('#res').innerHTML = list.filter(a => !f || (a.name + a.desc).toLowerCase().includes(f)).map(a => {
+      const p = activityPlace(a);
+      return `<a class="list-item" href="#/activiteit/${encodeURIComponent(a.id)}"><span class="lead">${done.includes(a.id) ? '✅' : actCatOf(a.cat)?.emoji || '🎯'}</span>
+        <div class="body"><div class="title">${esc(a.name)} ${wish.includes(a.id) ? '♥' : ''}</div>
+        <div class="sub">${esc(p?.name || '')} · ${esc(a.duration)} · ${esc(a.price)}</div></div><span class="chev">›</span></a>`;
+    }).join('') || '<div class="empty">Geen activiteiten gevonden</div>';
+  };
+  $('#q').oninput = e => draw(e.target.value);
+  $$('[data-ac]').forEach(b => b.onclick = () => { actCat = b.dataset.ac; render(); });
+  bindRegionChips();
+  draw('');
+}, { tab: 'ontdek', title: 'Activiteiten' });
+
+route('/activiteit/:id', async id => {
+  const a = ACTIVITIES.find(x => x.id === id);
+  if (!a) { location.hash = '#/ontdek/activiteiten'; return; }
+  setTitle(a.name);
+  const [wish, done] = await Promise.all([db.getKV('actWish', []), db.getKV('actDone', [])]);
+  const w = wish.includes(id), d = done.includes(id);
+  const p = activityPlace(a);
+  const cat = actCatOf(a.cat);
+  const others = nearbyActivities(p, 60).filter(x => x.id !== id).slice(0, 5);
+  view.innerHTML = `
+    <div class="card">
+      <div class="row wrap" style="gap:6px"><span class="tag">${cat?.emoji} ${esc(cat?.name)}</span><span class="tag">${esc(regionName(regionOfPoint(p)))}</span>${d ? '<span class="tag green">✓ gedaan</span>' : ''}</div>
+      <h1 style="margin:12px 0 8px">${esc(a.name)}</h1>
+      <p>${esc(a.desc)}</p>
+      <dl class="facts" style="margin:12px 0">
+        <dt>Waar</dt><dd>${a.at.startsWith('a:') ? `<a href="#/plek/${encodeURIComponent(a.at.slice(2))}">${esc(p.name)}</a>` : esc(p.name)}</dd>
+        <dt>Duur</dt><dd>${esc(a.duration)}</dd>
+        <dt>Prijs</dt><dd>${esc(a.price)} <span class="muted small">(indicatie p.p.)</span></dd>
+        <dt>Wanneer</dt><dd>${esc(a.season)}</dd>
+      </dl>
+      ${a.tips ? `<div class="note">💡 <b>Tip:</b> ${esc(a.tips)}</div>` : ''}
+      <div class="row wrap" style="margin-top:14px">
+        <button class="btn" id="toPlan">➕ Aan mijn reisplan</button>
+        <button class="btn secondary" id="wish">${w ? '♥ Op mijn lijst' : '♡ Wil ik doen'}</button>
+        <button class="btn secondary" id="done">${d ? '✓ Gedaan' : 'Markeer als gedaan'}</button>
+      </div>
+      <div class="row wrap" style="margin-top:8px">
+        <a class="btn ghost sm" href="${esc(nativeMap(p.lat, p.lng, p.name))}">📍 Kaart-app</a>
+        <a class="btn ghost sm" target="_blank" rel="noopener" href="https://www.google.com/search?q=${encodeURIComponent(a.name + ' ' + p.name + ' Namibia')}">🔎 Zoek aanbieders</a>
+      </div>
+    </div>
+    ${others.length ? `<div class="section-title"><h2>Ook in de buurt</h2></div><div class="list">${others.map(o => `<a class="list-item" href="#/activiteit/${encodeURIComponent(o.id)}"><span class="lead">${actCatOf(o.cat)?.emoji}</span><div class="body"><div class="title">${esc(o.name)}</div><div class="sub">${esc(o.duration)} · ${esc(o.price)}</div></div><span class="chev">›</span></a>`).join('')}</div>` : ''}`;
+  const toggle = async (key, list, flag) => { const set = new Set(list); flag ? set.delete(id) : set.add(id); await db.setKV(key, [...set]); await rerender(); };
+  $('#wish').onclick = () => toggle('actWish', wish, w);
+  $('#done').onclick = () => { toggle('actDone', done, d); if (!d) toast('Gedaan ✓'); };
+  $('#toPlan').onclick = () => addPlaceToPlan(p, `🎯 ${a.name}`);
+}, { tab: 'ontdek', parent: '#/ontdek/activiteiten' });
 
 // Leaflet staat lokaal in /vendor, zodat de kaart ook offline werkt.
 let leafletPromise;

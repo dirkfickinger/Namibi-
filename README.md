@@ -7,6 +7,12 @@ Handig in de woestijn zonder bereik (zie *Offline gebruik* hieronder).
 ## Functies
 
 - **🏠 Home**: aftellen naar je reis of "Dag 8 van 21", waar je vannacht slaapt, tip van de dag en snelle acties.
+- **🗺️ Reisplanner**: stippel je eigen route uit met stops uit 59 bezienswaardigheden en 39 plaatsen, een eigen locatie of een punt op de kaart.
+  Per stop stel je het aantal nachten, de overnachting en notities in. De app berekent de datums, geschatte afstanden en rijtijden,
+  waarschuwt voor lange rijdagen, tekent de route op de (offline) kaart en kan de route openen in Google Maps.
+  Er zijn vier voorbeeldroutes om mee te beginnen.
+- **🎯 Activiteiten**: bijna 50 activiteiten (ballonvaart, kajakken tussen robben, neushoorns spoorzoeken, sandboarden, trektochten,
+  cultuur en meer) met duur, prijsindicatie, beste tijd en tips. Zet ze op je wensenlijst of direct in je reisplan.
 - **📔 Reisdagboek**: maak een reis aan en leg per dag verhalen vast met foto's, plaats, GPS-locatie, overnachting en gereden km.
 - **🦁 Dierencollectie**: een verzamelboek met 76 Namibische diersoorten (zoogdieren, vogels, zeedieren, reptielen).
   Fotografeer een dier en het vakje kleurt in met jouw foto. Verder: zeldzaamheidssterren, weetjes, waar je het dier kunt zien, badges
@@ -94,7 +100,8 @@ css/style.css         Vormgeving (licht + donker)
 js/app.js             Router en alle schermen
 js/db.js              Opslag (IndexedDB), foto's, back-up
 js/data/animals.js    Diersoorten voor de collectie
-js/data/places.js     Bezienswaardigheden, accommodaties, supermarkten
+js/data/places.js     Bezienswaardigheden, plaatsen, voorbeeldroutes, accommodaties, supermarkten
+js/data/activities.js Activiteiten
 js/data/info.js       Praktische info, paklijst, noodnummers, zinnetjes
 js/data/borders.js    Landsgrenzen voor de offline kaart (Natural Earth, publiek domein)
 vendor/leaflet/       Kaartbibliotheek Leaflet 1.9.4 (BSD-2), lokaal voor offline gebruik

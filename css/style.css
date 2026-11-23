@@ -296,3 +296,19 @@ body.locked .topbar, body.locked main, body.locked .bottomnav, body.locked .fab 
 }
 .lockscreen form { width: 100%; max-width: 360px; background: var(--bg); border-radius: 22px; padding: 26px 22px; text-align: center; box-shadow: 0 12px 40px rgba(0,0,0,.3); }
 .lockscreen h1 { margin: 6px 0; }
+
+/* Reisplanner */
+.seg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; background: var(--surface-2); padding: 4px; border-radius: 14px; margin-bottom: 14px; }
+.seg a { text-align: center; padding: 9px 8px; border-radius: 10px; text-decoration: none; color: var(--muted); font-weight: 700; font-size: .92rem; }
+.seg a.active { background: var(--surface); color: var(--accent); box-shadow: var(--shadow); }
+.num-badge { flex: none; width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: #fff; font-weight: 800; font-size: .85rem; display: grid; place-items: center; }
+.stop.entry::before { display: none; }
+.stop { margin-bottom: 0; }
+.leg { font-size: .82rem; color: var(--muted); padding: 8px 4px 8px 2px; margin-left: -12px; }
+.nights { display: flex; align-items: center; gap: 2px; flex: none; }
+.nights .icon-btn { width: 32px; height: 32px; font-size: 1.1rem; background: var(--surface-2); }
+.nights span { min-width: 54px; text-align: center; font-weight: 800; }
+.nights small { display: block; font-weight: 600; font-size: .68rem; color: var(--muted); }
+.leaflet-div-icon.pin, .pin { background: var(--accent); color: #fff; border: 2px solid #fff; border-radius: 50%; font: 800 12px/20px -apple-system, sans-serif; text-align: center; box-shadow: 0 1px 4px rgba(0,0,0,.4); }
+details summary { color: var(--accent); font-weight: 700; }
+.timeline .stop + .leg + .stop, .timeline > .stop:first-child { margin-top: 0; }

@@ -1,6 +1,6 @@
 // Service worker: maakt de app volledig offline beschikbaar.
 // Verhoog VERSION bij elke wijziging zodat geïnstalleerde apps de nieuwe versie ophalen.
-const VERSION = 'v5';
+const VERSION = 'v6';
 const SHELL = `shell-${VERSION}`;
 const TILES = 'tiles';
 const MAX_TILES = 3000; // ca. 50–80 MB aan bewaarde kaarttegels
@@ -15,6 +15,7 @@ const ASSETS = [
   'js/data/places.js',
   'js/data/info.js',
   'js/data/borders.js',
+  'js/data/activities.js',
   'vendor/leaflet/leaflet.js',
   'vendor/leaflet/leaflet.css',
   'icons/icon.svg',
