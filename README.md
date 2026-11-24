@@ -14,8 +14,11 @@ Handig in de woestijn zonder bereik (zie *Offline gebruik* hieronder).
 - **🎯 Activiteiten**: bijna 50 activiteiten (ballonvaart, kajakken tussen robben, neushoorns spoorzoeken, sandboarden, trektochten,
   cultuur en meer) met duur, prijsindicatie, beste tijd en tips. Zet ze op je wensenlijst of direct in je reisplan.
 - **👥 Samen reizen**: deel een reis met je reisgenoten. Jullie maken samen het reisplan en delen verhalen, foto's
-  en dierwaarnemingen (met een gezamenlijk groepsboek). Uitnodigen gaat met een eenmalige link. Rollen: eigenaar,
+  en dierwaarnemingen. Elke reis heeft een eigen **🦁 Dieren**-tabblad: bij een gedeelde reis ziet iedereen
+  direct welke dieren de groep heeft gespot, met foto's en wie ze zag. Uitnodigen gaat met een eenmalige link. Rollen: eigenaar,
   bewerken of alleen bekijken. Alles is **end-to-end versleuteld**: de server kan de inhoud niet lezen.
+- **👤 Mijn account**: op het startscherm zie je je naam, e-mail, gedeelde reizen en synchronisatiestatus;
+  de accountpagina toont ook je bijdragen en privacy-instellingen.
 - **📔 Reisdagboek**: maak een reis aan en leg per dag verhalen vast met foto's, plaats, GPS-locatie, overnachting en gereden km.
 - **🦁 Dierencollectie**: een verzamelboek met 76 Namibische diersoorten (zoogdieren, vogels, zeedieren, reptielen).
   Fotografeer een dier en het vakje kleurt in met jouw foto. Verder: zeldzaamheidssterren, weetjes, waar je het dier kunt zien, badges

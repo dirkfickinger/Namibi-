@@ -49,6 +49,9 @@ async function hydrate(root = view) {
   }
 }
 
+// Open panelen; bij navigatie naar een ander scherm worden ze gesloten.
+const openSheets = new Set();
+function closeSheetsForNavigation() { for (const e of [...openSheets]) if (e.hash !== location.hash) e.close('nav'); }
 function openSheet(html, { onClose } = {}) {
   const bd = document.createElement('div');
   bd.className = 'sheet-backdrop';
@@ -56,11 +59,14 @@ function openSheet(html, { onClose } = {}) {
   document.body.append(bd);
   document.body.style.overflow = 'hidden';
   let closed = false;
+  const entry = { hash: location.hash };
   const close = (reason) => {
     if (closed) return; closed = true;
-    bd.remove(); document.body.style.overflow = '';
+    openSheets.delete(entry);
+    bd.remove(); if (!openSheets.size) document.body.style.overflow = '';
     onClose?.(reason);
   };
+  entry.close = close; openSheets.add(entry);
   bd.addEventListener('click', e => { if (e.target === bd) close('cancel'); });
   $$('[data-close]', bd).forEach(b => b.addEventListener('click', () => close('cancel')));
   return { root: $('.sheet', bd), close };
@@ -219,7 +225,7 @@ async function renderOnce() {
   location.hash = '#/';
 }
 const setTitle = t => { $('#title').textContent = t; document.title = t === 'Namibië' ? 'Namibië Reisapp' : `${t} · Namibië`; };
-window.addEventListener('hashchange', () => { sessionStorage.setItem('nav', '1'); render(); });
+window.addEventListener('hashchange', () => { sessionStorage.setItem('nav', '1'); closeSheetsForNavigation(); render(); });
 
 function fab(label, onClick) {
   const b = document.createElement('button');
@@ -229,12 +235,37 @@ function fab(label, onClick) {
 }
 
 // ============ HOME ============
+const initial = (name, email) => esc(((name || email || '?').trim()[0] || '?').toUpperCase());
+async function accountSummary() {
+  if (!cloud.configured()) return null;
+  const me = ME || await refreshMe().catch(() => null);
+  if (!me) return { loggedIn: false };
+  const [name, all, last, pending] = await Promise.all([cloud.myDisplayName(), db.all('trips'), db.getKV('lastSync', 0), cloud.pendingCount()]);
+  return { loggedIn: true, me, name, shared: all.filter(t => t.cloud && !t.cloud.removed).length, last, pending };
+}
+function accountCardHtml(acc) {
+  if (!acc) return '';
+  if (!acc.loggedIn) return `<a class="card tight row" href="#/account" style="text-decoration:none;color:inherit">
+      <span class="avatar" style="background:var(--surface-2);color:var(--text)">👤</span>
+      <div style="flex:1;min-width:0"><b>Mijn account</b><div class="small muted">Log in om reizen, plannen en dierenfoto's te delen met je reisgenoten.</div></div><span class="chev">›</span></a>`;
+  return `<a class="card tight row" href="#/account" style="text-decoration:none;color:inherit">
+      <span class="avatar">${initial(acc.name, acc.me.email)}</span>
+      <div style="flex:1;min-width:0"><b>${esc(acc.name || 'Mijn account')}</b>
+        <div class="small muted" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(acc.me.email || '')}</div>
+        <div class="small">👥 ${acc.shared} ${acc.shared === 1 ? 'gedeelde reis' : 'gedeelde reizen'} · 🔄 ${esc(fmtAgo(acc.last))}${acc.pending ? ` · ⏳ ${acc.pending} te versturen` : ''}</div></div>
+      <span class="chev">›</span></a>`;
+}
+
 route('/', async () => {
   const [trip, sMap, animals, entries, visited, bookings] = await Promise.all([
     currentTrip(), sightingsByAnimal(), allAnimals(), db.all('entries'), db.getKV('visited', []), db.getKV('bookings', [])]);
   const t = todayISO();
   const got = animals.filter(a => sMap.has(a.id)).length;
   const photoCount = (await db.all('photos')).length;
+  const acc = await accountSummary();
+  $('#topActions').innerHTML = acc
+    ? `<a class="icon-btn" href="#/account" aria-label="Mijn account">${acc.loggedIn ? `<span class="avatar sm">${initial(acc.name, acc.me.email)}</span>` : '👤'}</a>`
+    : `<a class="icon-btn" href="#/instellingen" aria-label="Instellingen">⚙️</a>`;
 
   let heroTitle = 'Welkom in Namibië', heroSub = 'Jouw reisgids, dagboek en dierencollectie – ook offline.', kicker = 'Land van de oneindige horizon';
   if (trip) {
@@ -268,6 +299,8 @@ route('/', async () => {
       ${todayStop.next && todayStop.stop.leave === addDays(t, 1) ? `<div class="small" style="margin-top:4px">Morgen: → ${esc(todayStop.next.name)} (ca. ${todayStop.stop.km} km, ${fmtHours(todayStop.stop.km)})</div>` : ''}
       ${todayStop.stop.nights === 0 && todayStop.next ? `<div class="small" style="margin-top:4px">Vandaag door naar ${esc(todayStop.next.name)} (ca. ${todayStop.stop.km} km)</div>` : ''}</a>` : ''}
     ${!todayStop && tonight ? `<a class="card tight row" href="#/ontdek/overnachten" style="text-decoration:none;color:inherit"><span style="font-size:1.6rem">🛏️</span><div><div class="small muted">Vannacht slaap je in</div><b>${esc(tonight.name)}</b>${tonight.place ? ` <span class="muted">· ${esc(tonight.place)}</span>` : ''}</div></a>` : ''}
+
+    ${accountCardHtml(acc)}
 
     <div class="stats">
       <a class="stat" href="#/collectie"><b>${got}<small style="font-size:.8rem;color:var(--muted)">/${animals.length}</small></b><span>Dieren</span></a>
@@ -440,6 +473,114 @@ route('/reis/:id', async id => {
   };
   if (canEditTrip(trip)) fab('Nieuw verhaal', () => entryForm(trip));
 }, { tab: 'reis', parent: '#/reis' });
+
+// ============ Dierenboek van een reis (bij een gedeelde reis: van de hele groep) ============
+async function tripSightings(trip) {
+  return (await db.all('sightings')).filter(x => x.tripId === trip.id)
+    .sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.created || 0) - (a.created || 0));
+}
+const isShared = trip => !!(trip?.cloud && !trip.cloud.removed);
+const whoName = (names, x) => isMine(x) ? 'Jij' : (names[x.by] || 'Reisgenoot');
+
+route('/reis/:id/dieren', async id => {
+  const trip = await db.get('trips', id);
+  if (!trip) { location.hash = '#/reis'; return; }
+  setTitle(trip.name);
+  $('#topActions').innerHTML = `<button class="icon-btn" id="editTrip" aria-label="Reis bewerken">✏️</button>`;
+  $('#editTrip').onclick = () => tripForm(trip);
+  const [animals, list, names] = await Promise.all([allAnimals(), tripSightings(trip), cloud.profileNames()]);
+  const by = new Map();
+  for (const x of list) { if (!by.has(x.animalId)) by.set(x.animalId, []); by.get(x.animalId).push(x); }
+  const spotted = animals.filter(a => by.has(a.id));
+  const photoCount = list.reduce((n, x) => n + (x.photos?.length || 0), 0);
+  const people = new Map();
+  for (const x of list) { const k = isMine(x) ? 'me' : x.by; people.set(k, { name: whoName(names, x), n: (people.get(k)?.n || 0) + 1 }); }
+  const pct = Math.round(spotted.length / animals.length * 100);
+
+  const slot = a => {
+    const l = by.get(a.id);
+    const cover = l.find(x => x.photos?.length)?.photos[0];
+    const who = isShared(trip) ? [...new Set(l.map(x => whoName(names, x)))] : [];
+    return `<a class="slot got ${cover ? '' : 'noimg'}" href="#/reis/${encodeURIComponent(trip.id)}/dieren/${encodeURIComponent(a.id)}">
+      ${who.length ? `<span class="by">${esc(who.length > 1 ? `${who.length} personen` : who[0])}</span>` : ''}${l.length > 1 ? `<span class="count">${l.length}×</span>` : ''}
+      ${cover ? `<img data-photo="${esc(cover)}" alt="">` : `<span class="emoji">${esc(a.emoji)}</span>`}<span class="nm">${esc(a.name)}</span></a>`;
+  };
+  spotted.sort((a, b) => (by.get(b.id)[0].date || '').localeCompare(by.get(a.id)[0].date || ''));
+
+  view.innerHTML = tripTabs(trip, 'dieren') + `
+    <div class="card">
+      <div class="row"><div style="font-size:2rem">🦁</div><div style="flex:1"><b>${isShared(trip) ? 'Ons dierenboek' : 'Dierenboek van deze reis'}</b>
+        <div class="small muted">${spotted.length} ${spotted.length === 1 ? 'soort' : 'soorten'} · ${list.length} ${list.length === 1 ? 'waarneming' : 'waarnemingen'} · ${photoCount} ${photoCount === 1 ? 'foto' : "foto's"}</div></div>
+        <b style="font-size:1.4rem;color:var(--accent)">${pct}%</b></div>
+      <div class="progress" style="margin-top:10px"><div style="width:${pct}%"></div></div>
+      ${isShared(trip) ? `<div class="note" style="margin-top:10px">👥 Gedeeld: iedereen in deze reis ziet hier alle dieren en foto's die de groep heeft gespot.</div>` : ''}
+      ${people.size && isShared(trip) ? `<div class="who-chips">${[...people.values()].map(p => `<span>${esc(p.name)} · ${p.n}</span>`).join('')}</div>` : ''}
+    </div>
+    ${spotted.length ? `<div class="collection">${spotted.map(slot).join('')}</div>`
+      : `<div class="empty"><div class="big">🐾</div>${canEditTrip(trip) ? `Nog geen dieren in deze reis. Tik op ＋ als je een dier ziet${isShared(trip) ? ' – je reisgenoten zien het meteen' : ''}.` : 'Nog geen dieren gespot in deze reis.'}</div>`}
+    <p class="small muted" style="text-align:center;margin:16px 70px 0">Je eigen waarnemingen staan ook in <a href="#/collectie">je persoonlijke dierenboek</a>.</p>`;
+  if (canEditTrip(trip)) fab('Dier gespot', () => { location.hash = `#/reis/${encodeURIComponent(trip.id)}/spot`; });
+}, { tab: 'reis', parent: '#/reis' });
+
+route('/reis/:id/spot', async id => {
+  const trip = await db.get('trips', id);
+  if (!trip || !canEditTrip(trip)) { location.hash = trip ? `#/reis/${encodeURIComponent(id)}/dieren` : '#/reis'; return; }
+  setTitle('Welk dier zag je?');
+  const [animals, list] = await Promise.all([allAnimals(), tripSightings(trip)]);
+  const seen = new Set(list.map(x => x.animalId));
+  view.innerHTML = `<div class="small muted" style="margin:0 2px 8px">Voor de reis <b>${esc(trip.name)}</b>${isShared(trip) ? ' · 👥 de hele groep ziet het' : ''}</div>
+    <input class="search" id="q" placeholder="Zoek een dier… (bijv. olifant)" autocomplete="off">
+    <div class="list" id="res"></div>
+    <a class="btn secondary block" href="#/collectie/nieuw">＋ Eigen soort toevoegen</a>`;
+  const draw = q => {
+    const f = q.trim().toLowerCase();
+    const l = animals.filter(a => !f || a.name.toLowerCase().includes(f) || (a.sci || '').toLowerCase().includes(f));
+    $('#res').innerHTML = l.map(a => `<a class="list-item" href="#" data-a="${esc(a.id)}">
+      <span class="lead">${esc(a.emoji)}</span><div class="body"><div class="title">${esc(a.name)}</div><div class="sub">${esc(a.sci || '')}</div></div>
+      ${seen.has(a.id) ? '<span class="tag gold">✓ al gespot</span>' : '<span class="chev">›</span>'}</a>`).join('') || '<div class="empty">Niets gevonden. Voeg een eigen soort toe.</div>';
+  };
+  $('#q').addEventListener('input', e => draw(e.target.value));
+  $('#res').onclick = e => {
+    const b = e.target.closest('[data-a]'); if (!b) return;
+    e.preventDefault();
+    const a = animals.find(x => x.id === b.dataset.a);
+    sightingForm(a, null, { trip, onSaved: () => { location.hash = `#/reis/${encodeURIComponent(trip.id)}/dieren`; } });
+  };
+  draw('');
+  $('#q').focus();
+}, { tab: 'reis', parent: id => `#/reis/${encodeURIComponent(id)}/dieren` });
+
+route('/reis/:id/dieren/:animal', async (id, animalId) => {
+  const trip = await db.get('trips', id);
+  const a = (await allAnimals()).find(x => x.id === animalId);
+  if (!trip || !a) { location.hash = trip ? `#/reis/${encodeURIComponent(id)}/dieren` : '#/reis'; return; }
+  setTitle(a.name);
+  const list = (await tripSightings(trip)).filter(x => x.animalId === a.id);
+  const names = await cloud.profileNames();
+  const photos = list.flatMap(x => (x.photos || []).map(p => ({ p, x })));
+  view.innerHTML = `
+    <div class="card"><div class="row"><span style="font-size:2.2rem">${esc(a.emoji)}</span><div style="flex:1"><h2 style="margin:0">${esc(a.name)}</h2>
+      ${a.sci ? `<div class="small muted" style="font-style:italic">${esc(a.sci)}</div>` : ''}</div><a class="btn ghost sm" href="#/collectie/${encodeURIComponent(a.id)}">ℹ️ Info</a></div>
+      <div class="small muted" style="margin-top:6px">${list.length} ${list.length === 1 ? 'waarneming' : 'waarnemingen'} in ${esc(trip.name)}</div></div>
+    ${canEditTrip(trip) ? `<button class="btn block" id="spot" style="margin-bottom:14px">📸 Waarneming toevoegen</button>` : ''}
+    ${photos.length ? `<div class="section-title"><h2>Foto's</h2><span class="small muted">${photos.length}</span></div>
+      <div class="gallery">${photos.map(({ p, x }) => `<div class="ph" data-p="${esc(p)}"><img data-photo="${esc(p)}" alt="">
+        ${isShared(trip) ? `<div style="position:absolute;left:0;right:0;bottom:0;padding:12px 6px 4px;background:linear-gradient(transparent,rgba(0,0,0,.7));color:#fff;font-size:.68rem;font-weight:700">${esc(whoName(names, x))}</div>` : ''}</div>`).join('')}</div>` : ''}
+    ${list.length ? `<div class="section-title"><h2>Waarnemingen</h2></div><div class="list">${list.map(x => `
+      <div class="list-item" data-s="${esc(x.id)}"><span class="lead">${isShared(trip) ? '👤' : '👁️'}</span><div class="body">
+        <div class="title">${fmtDate(x.date)}${x.place ? ` · ${esc(x.place)}` : ''}</div>
+        <div class="sub">${isShared(trip) ? `${esc(whoName(names, x))} · ` : ''}${esc(x.note || (x.photos?.length ? `${x.photos.length} foto('s)` : 'Zonder foto'))}</div></div>
+        ${canEditItem(trip, x) ? '<span class="chev">›</span>' : ''}</div>`).join('')}</div>`
+      : '<div class="empty">Nog geen waarnemingen van dit dier in deze reis.</div>'}`;
+  const back = () => rerender();
+  $('#spot')?.addEventListener('click', () => sightingForm(a, null, { trip, onSaved: back }));
+  $$('[data-s]').forEach(el => el.onclick = () => {
+    const x = list.find(y => y.id === el.dataset.s);
+    if (!canEditItem(trip, x)) return toast(`Waarneming van ${whoName(names, x)}`);
+    sightingForm(a, x, { trip, onSaved: back });
+  });
+  $$('.gallery .ph').forEach(el => el.onclick = () => { const img = $('img', el); if (img?.src) lightbox(img.src); });
+}, { tab: 'reis', parent: id => `#/reis/${encodeURIComponent(id)}/dieren` });
 
 function entryForm(trip, entry, prefillPlace = '') {
   const isNew = !entry;
@@ -617,10 +758,14 @@ route('/collectie/:id', async rawId => {
   if (query === 'spot') { history.replaceState(null, '', '#/collectie/' + encodeURIComponent(id)); sightingForm(a); }
 }, { tab: 'collectie', parent: '#/collectie' });
 
-async function sightingForm(animal, s) {
+async function sightingForm(animal, s, opts = {}) {
   const isNew = !s;
-  const trip = await currentTrip();
+  // Nieuwe waarneming: koppel aan een reis waarin je mag toevoegen (zo ziet de hele groep hem bij een gedeelde reis).
+  const editable = (await trips()).filter(canEditTrip);
+  let trip = opts.trip && canEditTrip(opts.trip) ? opts.trip : null;
+  if (!trip) { const cur = await currentTrip(); trip = cur && canEditTrip(cur) ? cur : null; }
   s = s ? { ...s } : { id: uid(), animalId: animal.id, date: todayISO(), place: '', note: '', photos: [], created: Date.now(), tripId: trip?.id };
+  const tripLabel = t => `${t.name}${t.cloud && !t.cloud.removed ? ' 👥 (gedeeld)' : ''}`;
   const geo = { lat: s.lat, lng: s.lng };
   const oldPhotos = [...(s.photos || [])];
   const wasFirst = isNew && !(await db.byIndex('sightings', 'animalId', animal.id)).length;
@@ -628,6 +773,9 @@ async function sightingForm(animal, s) {
     <h2>${esc(animal.emoji)} ${esc(animal.name)}</h2>
     <label class="f">Foto's van dit dier</label><div class="photo-pick" id="pp"></div>
     <div class="small muted" style="margin-top:4px">Tip: kies je beste foto's uit je galerij of maak er direct een.</div>
+    ${isNew && editable.length ? `<label class="f" for="tripSel">Reis</label>
+      <select class="input" id="tripSel">${editable.map(t => `<option value="${esc(t.id)}" ${t.id === s.tripId ? 'selected' : ''}>${esc(tripLabel(t))}</option>`).join('')}<option value="" ${!s.tripId ? 'selected' : ''}>Geen reis (alleen in mijn boek)</option></select>
+      <div class="small muted" id="tripHint" style="margin-top:4px"></div>` : ''}
     <label class="f">Datum</label><input class="input" type="date" id="date" value="${esc(s.date)}">
     <label class="f">Waar?</label><input class="input" id="place" value="${esc(s.place)}" placeholder="Bijv. Okaukuejo waterpoel" list="placeList2">
     <datalist id="placeList2">${ATTRACTIONS.map(a => `<option value="${esc(a.name)}">`).join('')}</datalist>
@@ -639,14 +787,18 @@ async function sightingForm(animal, s) {
     { onClose: r => { if (r !== 'ok') pp.cancel(); } });
   const pp = photoPicker($('#pp', sh.root), s.photos || []);
   bindLocationButton(sh.root, geo);
+  const sel = $('#tripSel', sh.root);
+  const hint = () => { const t = editable.find(x => x.id === sel.value); $('#tripHint', sh.root).textContent = t?.cloud && !t.cloud.removed ? '👥 Iedereen in deze gedeelde reis ziet dit dier en je foto\'s.' : ''; };
+  if (sel) { sel.onchange = hint; hint(); }
   $('#save', sh.root).onclick = async () => {
+    if (sel) s.tripId = sel.value || undefined;
     Object.assign(s, { date: $('#date', sh.root).value || todayISO(), place: $('#place', sh.root).value.trim(), note: $('#note', sh.root).value.trim(), photos: pp.ids, lat: geo.lat, lng: geo.lng });
     await pp.commit();
     await db.put('sightings', s);
     await cloud.changed(s.tripId, 'sighting', s.id, [...new Set([...oldPhotos, ...s.photos])]);
     sh.close('ok');
     if (wasFirst) celebrate(animal); else toast('Opgeslagen ✓');
-    render();
+    if (opts.onSaved) opts.onSaved(s); else render();
   };
   $('#del', sh.root)?.addEventListener('click', async () => {
     sh.close('cancel');
@@ -654,7 +806,7 @@ async function sightingForm(animal, s) {
     for (const p of s.photos || []) await deletePhoto(p);
     await db.del('sightings', s.id);
     await cloud.changed(s.tripId, 'sighting', s.id, oldPhotos);
-    render();
+    if (opts.onSaved) opts.onSaved(null); else render();
   });
 }
 
@@ -907,10 +1059,15 @@ route('/ontdek/kaart', async () => {
 }, { tab: 'ontdek', title: 'Kaart' });
 
 // ============ Reisplanner ============
-const tripTabs = (trip, active) => `<div class="seg">
-  <a href="#/reis/${encodeURIComponent(trip.id)}/plan" class="${active === 'plan' ? 'active' : ''}">🗺️ Reisplan</a>
-  <a href="#/reis/${encodeURIComponent(trip.id)}" class="${active === 'dagboek' ? 'active' : ''}">📔 Dagboek</a>
-  <a href="#/reis/${encodeURIComponent(trip.id)}/samen" class="${active === 'samen' ? 'active' : ''}">👥 Samen${trip.cloud && !trip.cloud.removed ? ' ✓' : ''}</a></div>`;
+const tripTabs = (trip, active) => {
+  const base = '#/reis/' + encodeURIComponent(trip.id);
+  const tab = (id, href, icon, label) => `<a href="${href}" class="${active === id ? 'active' : ''}"${active === id ? ' aria-current="page"' : ''}><span class="i" aria-hidden="true">${icon}</span>${label}</a>`;
+  return `<nav class="seg trip" aria-label="Onderdelen van deze reis">
+    ${tab('plan', base + '/plan', '🗺️', 'Reisplan')}
+    ${tab('dagboek', base, '📔', 'Dagboek')}
+    ${tab('dieren', base + '/dieren', '🦁', 'Dieren')}
+    ${tab('samen', base + '/samen', '👥', 'Samen' + (trip.cloud && !trip.cloud.removed ? ' ✓' : ''))}</nav>`;
+};
 
 function planSchedule(trip, plan) {
   let night = 0;
@@ -942,6 +1099,8 @@ route('/reis/:id/plan', async id => {
   if (!canEditTrip(trip)) view.className = 'readonly';
   const sched = planSchedule(trip, plan);
   const tripNights = daysBetween(trip.start, trip.end);
+  let showMap = true;
+  try { showMap = localStorage.getItem('planMap') !== 'hidden'; } catch { /* geen opslag */ }
   const planNights = plan.reduce((n, s) => n + (s.nights || 0), 0);
   const totalKm = sched.reduce((n, s) => n + s.km, 0);
   const longest = sched.reduce((m, s) => Math.max(m, s.km), 0);
@@ -968,7 +1127,10 @@ route('/reis/:id/plan', async id => {
         ${planNights !== tripNights ? `<div class="note" style="margin-top:10px">ℹ️ Je plan telt ${planNights} nachten, je reis ${tripNights} nachten (${fmtDate(trip.start, { day: 'numeric', month: 'short' })} – ${fmtDate(trip.end, { day: 'numeric', month: 'short' })}). Pas het aantal nachten aan.</div>` : ''}
         ${longest > 450 ? `<div class="note" style="margin-top:10px">⚠️ Je langste rijdag is ca. ${longest} km. Plan bij voorkeur niet meer dan ca. 400–450 km per dag en rijd niet in het donker.</div>` : ''}
       </div>
-      <div id="planMap" style="height:42vh;min-height:260px;border-radius:var(--radius);overflow:hidden;border:1px solid var(--line);margin-bottom:6px"></div>
+      <div class="card tight mapcard">
+        <div class="row"><b>🗺️ Routekaart</b><span class="spacer"></span><button class="btn ghost sm" id="toggleMap" aria-expanded="${showMap}">${showMap ? 'Verbergen' : 'Tonen'}</button></div>
+        <div id="planMap" class="planmap" ${showMap ? '' : 'hidden'}></div>
+      </div>
       <p class="small muted" style="margin:0 2px 12px">Afstanden en rijtijden zijn schattingen (hemelsbreed × ${String(ROAD_FACTOR).replace('.', ',')}, gemiddeld ${AVG_KMH} km/u).</p>
       <div class="timeline">${sched.map((s, i) => {
         const acts = nearbyActivities(s, 60);
@@ -1011,6 +1173,13 @@ route('/reis/:id/plan', async id => {
     if ('editStop' in t.dataset) return stopForm(plan, stopIndex(t), save);
     if (t.dataset.addAfter !== undefined) return addStopSheet(plan, Number(t.dataset.addAfter) + 1, save, mapRef);
     if (t.id === 'addStop') return addStopSheet(plan, plan.length, save, mapRef);
+    if (t.id === 'toggleMap') {
+      showMap = !showMap;
+      try { localStorage.setItem('planMap', showMap ? 'shown' : 'hidden'); } catch { /* geen opslag */ }
+      $('#planMap').hidden = !showMap; t.textContent = showMap ? 'Verbergen' : 'Tonen'; t.setAttribute('aria-expanded', showMap);
+      if (showMap) await mapRef.ensure();
+      return;
+    }
     if (t.id === 'clearPlan') { if (await confirmSheet('Alle stops uit je reisplan verwijderen?', 'Leegmaken')) { plan.length = 0; return save(); } return; }
     if (t.dataset.tpl) {
       const tpl = TEMPLATES.find(x => x.id === t.dataset.tpl);
@@ -1022,12 +1191,17 @@ route('/reis/:id/plan', async id => {
     }
   };
 
-  // --- kaart ---
+  // --- kaart (alleen opgebouwd als hij zichtbaar is) ---
   const mapRef = {};
-  if (plan.length) {
-    try { const { L, map } = await makeBaseMap($('#planMap')); Object.assign(mapRef, { L, map }); drawRoute(L, map, plan); }
-    catch { $('#planMap').innerHTML = '<div class="empty">De kaart kon niet geladen worden.</div>'; }
-  }
+  mapRef.ensure = async () => {
+    const el = $('#planMap');
+    if (!el) return null;
+    if (el.hidden) { showMap = true; el.hidden = false; const b = $('#toggleMap'); if (b) { b.textContent = 'Verbergen'; b.setAttribute('aria-expanded', true); } }
+    if (mapRef.map) { mapRef.map.invalidateSize(); return mapRef.map; }
+    try { const { L, map } = await makeBaseMap(el); Object.assign(mapRef, { L, map }); drawRoute(L, map, plan); return map; }
+    catch { el.innerHTML = '<div class="empty">De kaart kon niet geladen worden.</div>'; return null; }
+  };
+  if (plan.length && showMap) await mapRef.ensure();
 }, { tab: 'reis', parent: '#/reis' });
 
 function googleRouteUrl(plan) {
@@ -1046,7 +1220,7 @@ function addStopSheet(plan, index, save, mapRef = {}) {
     <div class="list" id="res" style="max-height:42vh;overflow-y:auto"></div>
     <div class="row wrap">
       <button class="btn secondary sm" id="here">📍 Huidige locatie</button>
-      ${mapRef.map ? '<button class="btn secondary sm" id="pick">🗺️ Kies op de kaart</button>' : ''}
+      ${mapRef.ensure && $('#planMap') ? '<button class="btn secondary sm" id="pick">🗺️ Kies op de kaart</button>' : ''}
       <span class="spacer"></span><button class="btn ghost sm" data-close>Sluiten</button>
     </div>`);
   const r = sh.root;
@@ -1066,9 +1240,10 @@ function addStopSheet(plan, index, save, mapRef = {}) {
     try { const g = await getLocation(); const name = await askName('Mijn locatie'); if (name !== null) add({ ref: '', name, lat: g.lat, lng: g.lng }); }
     catch { toast('Locatie niet gevonden.'); }
   };
-  $('#pick', r)?.addEventListener('click', () => {
+  $('#pick', r)?.addEventListener('click', async () => {
     sh.close('cancel');
-    const { map } = mapRef;
+    const map = await mapRef.ensure();
+    if (!map) return toast('De kaart is niet beschikbaar.');
     $('#planMap').scrollIntoView({ behavior: 'smooth', block: 'center' });
     toast('Tik op de kaart waar je de stop wilt plaatsen', 4000);
     map.getContainer().style.cursor = 'crosshair';
@@ -1296,8 +1471,17 @@ route('/account', async () => {
   }
   const name = await cloud.myDisplayName();
   const shared = (await db.all('trips')).filter(t => t.cloud);
-  view.innerHTML = `<div class="card"><h2>👤 Mijn account</h2>
-      <dl class="facts"><dt>E-mail</dt><dd>${esc(me.email || '')}</dd><dt>Laatst gesynchroniseerd</dt><dd>${esc(fmtAgo(await db.getKV('lastSync', 0)))}</dd></dl>
+  const sharedIds = new Set(shared.filter(t => !t.cloud.removed).map(t => t.id));
+  const [allEntries, allSightings, pending, lockOn] = await Promise.all([db.all('entries'), db.all('sightings'), cloud.pendingCount(), lock.isEnabled()]);
+  const mineIn = list => list.filter(x => sharedIds.has(x.tripId) && isMine(x));
+  const myEntries = mineIn(allEntries).length, mySightings = mineIn(allSightings);
+  const myPhotos = mySightings.reduce((n, x) => n + (x.photos?.length || 0), 0) + mineIn(allEntries).reduce((n, x) => n + (x.photos?.length || 0), 0);
+  view.innerHTML = `<div class="card"><div class="row"><span class="avatar">${initial(name, me.email)}</span><div style="flex:1;min-width:0"><h2 style="margin:0">${esc(name || 'Mijn account')}</h2>
+        <div class="small muted" style="overflow:hidden;text-overflow:ellipsis">${esc(me.email || '')}</div></div></div>
+      <dl class="facts" style="margin-top:12px"><dt>E-mail</dt><dd>${esc(me.email || '')}</dd>
+        ${me.created ? `<dt>Lid sinds</dt><dd>${esc(fmtDate(String(me.created).slice(0, 10)))}</dd>` : ''}
+        <dt>Laatst gesynchroniseerd</dt><dd>${esc(fmtAgo(await db.getKV('lastSync', 0)))}</dd>
+        <dt>Nog te versturen</dt><dd>${pending ? `${pending} ${pending === 1 ? 'wijziging' : 'wijzigingen'}` : 'Niets – alles is bijgewerkt'}</dd></dl>
       <form id="nameForm" novalidate style="margin-top:12px">
         <label class="f" for="dn">Mijn naam (zichtbaar voor reisgenoten)</label>
         <div class="row"><input class="input" id="dn" maxlength="40" value="${esc(name)}" placeholder="Bijv. Dirk"><button class="btn" type="submit">Opslaan</button></div>
@@ -1308,6 +1492,18 @@ route('/account', async () => {
     ${shared.length ? `<div class="list">${shared.map(t => `<a class="list-item" href="#/reis/${encodeURIComponent(t.id)}/samen"><span class="lead">👥</span><div class="body">
       <div class="title">${esc(t.name)}</div><div class="sub">${esc(roleLabel(t.cloud.role))}${t.cloud.removed ? ' · niet meer gedeeld' : ''}</div></div><span class="chev">›</span></a>`).join('')}</div>`
       : '<div class="card tight small muted">Nog geen gedeelde reizen. Open een reis en kies het tabblad "👥 Samen", of open een uitnodiging die je hebt gekregen.</div>'}
+    <div class="section-title"><h2>Mijn bijdragen</h2></div>
+    <div class="stats" style="margin-top:0">
+      <div class="stat"><b>${myEntries}</b><span>Verhalen gedeeld</span></div>
+      <div class="stat"><b>${mySightings.length}</b><span>Dieren gedeeld</span></div>
+      <div class="stat"><b>${myPhotos}</b><span>Foto's gedeeld</span></div>
+    </div>
+    <div class="section-title"><h2>Privacy en beveiliging</h2></div>
+    <div class="card tight small">
+      <div>🔐 Gedeelde reizen zijn <b>end-to-end versleuteld</b>: alleen jij en je reisgenoten kunnen ze lezen.</div>
+      <div style="margin-top:6px">📧 Je e-mailadres is voor niemand anders zichtbaar; reisgenoten zien alleen je naam.</div>
+      <div style="margin-top:6px">${lockOn ? '🔒 App-vergrendeling staat <b>aan</b>.' : '🔓 App-vergrendeling staat uit.'} <a href="#/instellingen">Instellingen ›</a></div>
+    </div>
     <div class="row wrap" style="margin-top:10px"><button class="btn secondary" id="syncBtn">🔄 Nu synchroniseren</button><button class="btn ghost" id="logout">Uitloggen</button></div>`;
   $('#nameForm').onsubmit = async e => {
     e.preventDefault();
@@ -1319,7 +1515,7 @@ route('/account', async () => {
     if (!(await confirmSheet('Uitloggen? Gedeelde reizen blijven op dit toestel, maar worden niet meer bijgewerkt tot je weer inlogt.', 'Uitloggen'))) return;
     await cloud.signOut(); ME = null; toast('Uitgelogd'); render();
   };
-}, { tab: 'info', title: 'Samen reizen', parent: '#/info' });
+}, { tab: 'home', title: 'Mijn account', parent: '#/' });
 
 async function afterLogin() {
   if (!(await cloud.myDisplayName())) { await rerender(); return; }
@@ -1823,6 +2019,7 @@ function showLockScreen() {
   view.innerHTML = '';
   view.onclick = null;
   currentCleanup?.(); currentCleanup = null;
+  for (const e of [...openSheets]) e.close('lock');
   $$('.sheet-backdrop, .lightbox, .fab').forEach(e => e.remove());
   document.body.style.overflow = '';
   document.body.classList.add('locked');

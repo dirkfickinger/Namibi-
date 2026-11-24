@@ -66,7 +66,7 @@ async function supabaseBackend() {
   const path = (t, p) => `${t}/${p}`;
   const bucket = () => c.storage.from('trip-photos');
   return {
-    async user() { const { data } = await c.auth.getSession(); const u = data.session?.user; return u ? { id: u.id, email: u.email } : null; },
+    async user() { const { data } = await c.auth.getSession(); const u = data.session?.user; return u ? { id: u.id, email: u.email, created: u.created_at } : null; },
     async sendCode(email) { ok(await c.auth.signInWithOtp({ email, options: { shouldCreateUser: true } })); },
     async verifyCode(email, token) { ok(await c.auth.verifyOtp({ email, token, type: 'email' })); },
     async signOut() { await c.auth.signOut({ scope: 'local' }); },

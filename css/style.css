@@ -319,3 +319,22 @@ details summary { color: var(--accent); font-weight: 700; }
 .readonly [data-n], .readonly [data-mv], .readonly [data-add-after], .readonly [data-edit-stop], .readonly #addStop,
 .readonly #clearPlan, .readonly [data-tpl], .readonly details, .readonly .empty .btn { display: none !important; }
 code { background: var(--surface-2); padding: 1px 5px; border-radius: 5px; font-size: .85em; }
+
+/* Kaarten blijven onder de bovenbalk, panelen en meldingen */
+.leaflet-container { isolation: isolate; z-index: 0; }
+.planmap { height: 34vh; min-height: 220px; max-height: 380px; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); margin-top: 10px; }
+.mapcard .row b { font-size: .95rem; }
+
+/* Reis-tabbladen: icoon boven de tekst, past ook met vier tabbladen */
+.seg.trip a { display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 7px 2px; font-size: .78rem; line-height: 1.15; }
+.seg.trip a .i { font-size: 1.15rem; }
+.seg.trip:has(a:nth-child(4)) { grid-template-columns: repeat(4, 1fr); }
+
+/* Account op het startscherm */
+.avatar { flex: none; width: 42px; height: 42px; border-radius: 50%; background: var(--accent); color: #fff; font-weight: 800; font-size: 1.1rem; display: grid; place-items: center; }
+.avatar.sm { width: 32px; height: 32px; font-size: .9rem; }
+.icon-btn .avatar.sm { margin: auto; }
+.who-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.who-chips span { background: var(--surface-2); border-radius: 99px; padding: 3px 10px; font-size: .78rem; font-weight: 700; }
+.slot .by { position: absolute; left: 5px; top: 5px; z-index: 1; background: rgba(0,0,0,.55); color: #fff; font-size: .62rem; font-weight: 700; padding: 1px 6px; border-radius: 99px; }
+a.icon-btn { text-decoration: none; color: inherit; }
