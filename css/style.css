@@ -312,3 +312,10 @@ body.locked .topbar, body.locked main, body.locked .bottomnav, body.locked .fab 
 .leaflet-div-icon.pin, .pin { background: var(--accent); color: #fff; border: 2px solid #fff; border-radius: 50%; font: 800 12px/20px -apple-system, sans-serif; text-align: center; box-shadow: 0 1px 4px rgba(0,0,0,.4); }
 details summary { color: var(--accent); font-weight: 700; }
 .timeline .stop + .leg + .stop, .timeline > .stop:first-child { margin-top: 0; }
+
+/* Samen reizen */
+.seg:has(a:nth-child(3)) { grid-template-columns: repeat(3, 1fr); }
+.seg a { font-size: .88rem; }
+.readonly [data-n], .readonly [data-mv], .readonly [data-add-after], .readonly [data-edit-stop], .readonly #addStop,
+.readonly #clearPlan, .readonly [data-tpl], .readonly details, .readonly .empty .btn { display: none !important; }
+code { background: var(--surface-2); padding: 1px 5px; border-radius: 5px; font-size: .85em; }

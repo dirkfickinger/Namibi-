@@ -340,6 +340,40 @@ const arr = (v, max = 5000) => (Array.isArray(v) ? v.slice(0, max) : []);
 const coords = o => { const lat = num(o.lat, -90, 90), lng = num(o.lng, -180, 180); return lat !== undefined && lng !== undefined ? { lat, lng } : {}; };
 const time = v => num(v, 0, 8.64e15);
 const CATS = ['big', 'roof', 'hoef', 'klein', 'zee', 'vogel', 'reptiel', 'eigen'];
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const uuid = v => (typeof v === 'string' && UUID.test(v) ? v : undefined);
+
+function sanitizePlan(v) {
+  return arr(v, 100).filter(x => x && typeof x === 'object').map(x => ({
+    id: id(x.id) || uid(), ref: typeof x.ref === 'string' && /^(a:[A-Za-z0-9_-]{1,64}|t:[^<>"']{1,60})?$/.test(x.ref) ? x.ref : '',
+    name: str(x.name, 80) || 'Stop', ...coords(x), nights: Math.round(num(x.nights, 0, 60) ?? 1), stay: str(x.stay, 120), note: str(x.note, 2000),
+  })).filter(x => x.lat !== undefined);
+}
+
+// Koppeling van een lokale reis aan een gedeelde reis (incl. reissleutel).
+function sanitizeCloud(c) {
+  if (!c || typeof c !== 'object' || !uuid(c.id)) return undefined;
+  if (typeof c.key !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(c.key)) return undefined;
+  return { id: c.id, key: c.key, role: ['owner', 'editor', 'viewer'].includes(c.role) ? c.role : 'viewer', removed: c.removed === true || undefined };
+}
+
+// Controle van ontsleutelde gegevens die van reisgenoten binnenkomen.
+export function sanitizeShared(kind, o) {
+  if (!o || typeof o !== 'object') return null;
+  if (kind === 'trip') return { name: str(o.name, 120) || 'Gedeelde reis', start: date(o.start), end: date(o.end), who: str(o.who, 200) };
+  if (kind === 'plan') return { plan: sanitizePlan(o.plan) };
+  if (kind === 'entry') return { date: date(o.date), title: str(o.title, 200), place: str(o.place, 200), text: str(o.text, 20000), stay: str(o.stay, 200),
+    km: num(o.km, 0, 100000) ?? '', photos: ids(o.photos), ...coords(o), created: time(o.created), updated: time(o.updated) };
+  if (kind === 'sighting') {
+    const animalId = id(o.animalId);
+    if (!animalId) return null;
+    const a = o.animal && typeof o.animal === 'object' && animalId.startsWith('c_') ? { id: animalId, name: str(o.animal.name, 80) || 'Onbekend', sci: str(o.animal.sci, 120),
+      emoji: str(o.animal.emoji, 8) || '🐾', cat: CATS.includes(o.animal.cat) ? o.animal.cat : 'eigen', rarity: 2, custom: true, where: '', fact: '' } : undefined;
+    return { animalId, date: date(o.date), place: str(o.place, 200), note: str(o.note, 2000), photos: ids(o.photos), ...coords(o), created: time(o.created), animal: a };
+  }
+  if (kind === 'photo') return { created: time(o.created), taken: time(o.taken), type: ['image/jpeg', 'image/png', 'image/webp'].includes(o.type) ? o.type : 'image/jpeg' };
+  return null;
+}
 
 function sanitizeKV(key, v) {
   if (key === 'customAnimals') return arr(v, 500).filter(a => a && /^c_[A-Za-z0-9_-]{1,62}$/.test(a.id)).map(a => ({
@@ -361,21 +395,19 @@ function sanitizeBackup(d) {
   const out = { trips: [], entries: [], sightings: [], kv: [], photos: [] };
   for (const t of arr(d.trips)) {
     if (!t || !id(t.id)) continue;
-    const plan = arr(t.plan, 100).filter(x => x && typeof x === 'object').map(x => ({
-      id: id(x.id) || uid(), ref: typeof x.ref === 'string' && /^(a:[A-Za-z0-9_-]{1,64}|t:[^<>"']{1,60})?$/.test(x.ref) ? x.ref : '',
-      name: str(x.name, 80) || 'Stop', ...coords(x), nights: Math.round(num(x.nights, 0, 60) ?? 1), stay: str(x.stay, 120), note: str(x.note, 2000),
-    })).filter(x => x.lat !== undefined);
-    out.trips.push({ id: t.id, name: str(t.name, 120) || 'Reis', start: date(t.start) || date(t.end), end: date(t.end) || date(t.start), who: str(t.who, 200), plan, created: time(t.created) });
+    const plan = sanitizePlan(t.plan);
+    out.trips.push({ id: t.id, name: str(t.name, 120) || 'Reis', start: date(t.start) || date(t.end), end: date(t.end) || date(t.start), who: str(t.who, 200), plan,
+      cloud: sanitizeCloud(t.cloud), created: time(t.created) });
   }
   for (const e of arr(d.entries, 20000)) {
     if (!e || !id(e.id) || !id(e.tripId)) continue;
     out.entries.push({ id: e.id, tripId: e.tripId, date: date(e.date), title: str(e.title, 200), place: str(e.place, 200), text: str(e.text, 20000),
-      stay: str(e.stay, 200), km: num(e.km, 0, 100000) ?? '', photos: ids(e.photos), ...coords(e), created: time(e.created), updated: time(e.updated) });
+      stay: str(e.stay, 200), km: num(e.km, 0, 100000) ?? '', photos: ids(e.photos), ...coords(e), created: time(e.created), updated: time(e.updated), by: uuid(e.by) });
   }
   for (const s of arr(d.sightings, 20000)) {
     if (!s || !id(s.id) || !id(s.animalId)) continue;
     out.sightings.push({ id: s.id, animalId: s.animalId, date: date(s.date), place: str(s.place, 200), note: str(s.note, 2000),
-      photos: ids(s.photos), ...coords(s), created: time(s.created), tripId: id(s.tripId) || undefined });
+      photos: ids(s.photos), ...coords(s), created: time(s.created), tripId: id(s.tripId) || undefined, by: uuid(s.by) });
   }
   const oldCovers = {};
   for (const k of arr(d.kv, 2000)) {

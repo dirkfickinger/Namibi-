@@ -4,6 +4,7 @@ import { REGIONS, ATTRACTIONS, ACCOMMODATIONS, SUPERMARKET_CHAINS, SUPERMARKETS,
 import { ACTIVITIES, ACT_CATS } from './data/activities.js';
 import { FACTS, SECTIONS, EMERGENCY, EMERGENCY_NOTE, PHRASES, PACKING, TIPS } from './data/info.js';
 import { BORDERS } from './data/borders.js';
+import * as cloud from './cloud.js';
 
 // ============ Beveiliging: niet in een frame laten draaien (clickjacking) ============
 if (window.top !== window.self) {
@@ -149,9 +150,10 @@ async function allAnimals() {
   const custom = await db.getKV('customAnimals', []);
   return [...ANIMALS, ...custom];
 }
-async function sightingsByAnimal() {
+async function sightingsByAnimal(scope = 'mine') {
   const map = new Map();
   for (const s of await db.all('sightings')) {
+    if (scope !== 'group' && !isMine(s)) continue;
     if (!map.has(s.animalId)) map.set(s.animalId, []);
     map.get(s.animalId).push(s);
   }
@@ -180,7 +182,15 @@ const routes = [];
 const route = (pattern, fn, opts = {}) => routes.push({ re: new RegExp('^' + pattern.replace(/:(\w+)/g, '([^/]+)') + '$'), fn, ...opts });
 
 let currentCleanup = null;
-async function render() {
+// Schermen worden na elkaar opgebouwd; komt er tijdens het opbouwen een nieuwe aanvraag,
+// dan volgt nog één ronde zodat altijd het laatst gevraagde scherm zichtbaar is.
+let renderBusy = null, renderAgain = false;
+function render() {
+  if (renderBusy) { renderAgain = true; return renderBusy; }
+  renderBusy = (async () => { do { renderAgain = false; await renderOnce(); } while (renderAgain); })().finally(() => { renderBusy = null; });
+  return renderBusy;
+}
+async function renderOnce() {
   if (await lock.isEnabled() && !lock.isUnlocked()) { showLockScreen(); return; }
   if (!render.migrated) { render.migrated = true; await migrateCovers().catch(() => {}); }
   let path;
@@ -198,6 +208,7 @@ async function render() {
     setTitle(r.title || 'Namibië');
     view.innerHTML = '';
     view.onclick = null;
+    view.className = '';
     try { await r.fn(...m.slice(1)); } catch (e) { console.error(e); view.innerHTML = `<div class="empty"><div class="big">🌵</div>Er ging iets mis: ${esc(e.message)}</div>`; }
     // Is de app vergrendeld terwijl deze pagina nog laadde? Dan niets laten staan.
     if (lockSettings.enabled && !lock.isUnlocked()) { showLockScreen(); return; }
@@ -319,17 +330,21 @@ route('/reis', async () => {
   if (!list.length) {
     view.innerHTML = `<div class="empty"><div class="big">📔</div><h2>Begin je reisdagboek</h2>
       <p>Maak een reis aan en leg elke dag je avonturen vast met verhalen, foto's en locaties.</p>
-      <button class="btn" id="new">＋ Nieuwe reis</button></div>`;
+      <button class="btn" id="new">＋ Nieuwe reis</button>
+      ${cloud.configured() ? '<div style="margin-top:10px"><button class="btn ghost" id="openInv">🔗 Uitnodiging van een reisgenoot openen</button></div>' : ''}</div>`;
     $('#new').onclick = () => tripForm();
+    $('#openInv')?.addEventListener('click', openInviteSheet);
     return;
   }
   view.innerHTML = `<div class="list">${list.map(tr => {
     const n = entries.filter(e => e.tripId === tr.id).length;
     return `<a class="list-item" href="#/reis/${encodeURIComponent(tr.id)}"><span class="lead">🧳</span><div class="body"><div class="title">${esc(tr.name)}</div>
-      <div class="sub">${fmtDate(tr.start, { day: 'numeric', month: 'short', year: 'numeric' })} – ${fmtDate(tr.end, { day: 'numeric', month: 'short', year: 'numeric' })} · ${n} ${n === 1 ? 'verhaal' : 'verhalen'}</div></div><span class="chev">›</span></a>`;
+      <div class="sub">${tr.cloud && !tr.cloud.removed ? '👥 gedeeld · ' : ''}${fmtDate(tr.start, { day: 'numeric', month: 'short', year: 'numeric' })} – ${fmtDate(tr.end, { day: 'numeric', month: 'short', year: 'numeric' })} · ${n} ${n === 1 ? 'verhaal' : 'verhalen'}</div></div><span class="chev">›</span></a>`;
   }).join('')}</div>
-  <button class="btn secondary block" id="new">＋ Nieuwe reis</button>`;
+  <button class="btn secondary block" id="new">＋ Nieuwe reis</button>
+  ${cloud.configured() ? '<button class="btn ghost block" id="openInv" style="margin-top:6px">🔗 Uitnodiging openen</button>' : ''}`;
   $('#new').onclick = () => tripForm();
+  $('#openInv')?.addEventListener('click', openInviteSheet);
 }, { tab: 'reis', title: 'Reisdagboek' });
 
 route('/reis/nieuw', async () => {
@@ -359,12 +374,20 @@ function tripForm(trip) {
     if (trip.end < trip.start) trip.end = trip.start;
     trip.who = $('#who', s.root).value.trim();
     await db.put('trips', trip);
+    await cloud.changed(trip.id, 'trip', 'trip');
     s.close('ok');
     if (isNew) location.hash = '#/reis/' + encodeURIComponent(trip.id) + '/plan'; else render();
   };
   $('#del', s.root)?.addEventListener('click', async () => {
     s.close('ok');
     if (!(await confirmSheet(`"${trip.name}" en alle verhalen en foto's daarin verwijderen?`))) return;
+    if (trip.cloud && !trip.cloud.removed) {
+      const owner = trip.cloud.role === 'owner';
+      if (!(await confirmSheet(owner ? 'Dit is een gedeelde reis. Het delen wordt gestopt en de reis wordt ook voor je reisgenoten van de server verwijderd.' : 'Dit is een gedeelde reis. Je verlaat de reis; voor je reisgenoten blijft hij bestaan.', owner ? 'Stoppen en verwijderen' : 'Verlaten en verwijderen'))) return;
+      try { owner ? await cloud.stopSharing(trip) : await cloud.leaveTrip(trip); }
+      catch (e) { toast('Lukt niet zonder internet: ' + e.message, 4000); return; }
+    }
+    for (const sg of await db.byIndex('sightings', 'tripId', trip.id)) if (!isMine(sg)) { for (const p of sg.photos || []) await deletePhoto(p); await db.del('sightings', sg.id); }
     for (const e of await db.byIndex('entries', 'tripId', trip.id)) { for (const p of e.photos || []) await deletePhoto(p); await db.del('entries', e.id); }
     await db.del('trips', trip.id);
     location.hash = '#/reis';
@@ -383,6 +406,7 @@ route('/reis/:id', async id => {
   $('#topActions').innerHTML = `<button class="icon-btn" id="editTrip" aria-label="Reis bewerken">✏️</button>`;
   $('#editTrip').onclick = () => tripForm(trip);
 
+  const names = trip.cloud ? await cloud.profileNames() : {};
   view.innerHTML = tripTabs(trip, 'dagboek') + `
     <div class="card">
       <div class="muted small">${fmtDateLong(trip.start)} – ${fmtDateLong(trip.end)}</div>
@@ -398,12 +422,13 @@ route('/reis/:id', async id => {
       return `<article class="card entry" data-id="${esc(e.id)}">
         <div class="date">${day >= 1 && day <= total ? `Dag ${day} · ` : ''}${fmtDate(e.date)}</div>
         <h3 style="margin:2px 0 4px">${esc(e.title || 'Zonder titel')}</h3>
+        ${!isMine(e) ? `<div class="small" style="color:var(--sky)">✍️ ${esc(names[e.by] || 'Reisgenoot')}</div>` : ''}
         ${e.place || e.stay ? `<div class="small muted">${e.place ? `📍 ${esc(e.place)}` : ''}${e.place && e.stay ? ' · ' : ''}${e.stay ? `🛏️ ${esc(e.stay)}` : ''}${Number(e.km) > 0 ? ` · 🚙 ${esc(Number(e.km))} km` : ''}</div>` : ''}
         ${e.text ? `<div class="text" style="margin-top:8px">${esc(e.text)}</div>` : ''}
         ${e.photos?.length ? `<div class="photos">${e.photos.map(p => `<img data-photo="${esc(p)}" data-lb alt="">`).join('')}</div>` : ''}
         <div class="row" style="margin-top:8px"><span class="spacer"></span>
           ${e.lat ? `<a class="btn ghost sm" href="${esc(mapsSearch(Number(e.lat) + ',' + Number(e.lng)))}" target="_blank" rel="noopener">🗺️ Kaart</a>` : ''}
-          <button class="btn ghost sm" data-edit="${esc(e.id)}">Bewerken</button></div>
+          ${canEditItem(trip, e) ? `<button class="btn ghost sm" data-edit="${esc(e.id)}">Bewerken</button>` : ''}</div>
       </article>`;
     }).join('')}</div>` : `<div class="empty"><div class="big">✍️</div>Nog geen verhalen. Tik op ＋ om je eerste dag vast te leggen.</div>`}
   `;
@@ -413,7 +438,7 @@ route('/reis/:id', async id => {
     const img = ev.target.closest('img[data-lb]');
     if (img?.src) lightbox(img.src);
   };
-  fab('Nieuw verhaal', () => entryForm(trip));
+  if (canEditTrip(trip)) fab('Nieuw verhaal', () => entryForm(trip));
 }, { tab: 'reis', parent: '#/reis' });
 
 function entryForm(trip, entry, prefillPlace = '') {
@@ -421,6 +446,7 @@ function entryForm(trip, entry, prefillPlace = '') {
   const t = todayISO();
   entry = entry ? { ...entry } : { id: uid(), tripId: trip.id, date: (t >= trip.start && t <= trip.end) ? t : trip.start, title: '', place: prefillPlace, text: '', photos: [], created: Date.now() };
   const geo = { lat: entry.lat, lng: entry.lng };
+  const oldPhotos = [...(entry.photos || [])];
   const s = openSheet(`
     <h2>${isNew ? 'Nieuw verhaal' : 'Verhaal bewerken'}</h2>
     <label class="f">Datum</label><input class="input" type="date" id="date" value="${esc(entry.date)}">
@@ -445,20 +471,25 @@ function entryForm(trip, entry, prefillPlace = '') {
     });
     await pp.commit();
     await db.put('entries', entry);
+    await cloud.changed(entry.tripId, 'entry', entry.id, [...new Set([...oldPhotos, ...entry.photos])]);
     s.close('ok'); toast('Opgeslagen ✓'); render();
   };
   $('#del', s.root)?.addEventListener('click', async () => {
     s.close('cancel');
     if (!(await confirmSheet('Dit verhaal en de foto\'s verwijderen?'))) return;
     for (const p of entry.photos || []) await deletePhoto(p);
-    await db.del('entries', entry.id); render();
+    await db.del('entries', entry.id);
+    await cloud.changed(entry.tripId, 'entry', entry.id, oldPhotos);
+    render();
   });
 }
 
 // ============ COLLECTIE ============
-let collFilter = 'alle';
+let collFilter = 'alle', collScope = 'mine';
 route('/collectie', async () => {
-  const [animals, sMap] = await Promise.all([allAnimals(), sightingsByAnimal()]);
+  const hasGroup = (await db.all('sightings')).some(s => !isMine(s));
+  if (!hasGroup) collScope = 'mine';
+  const [animals, sMap] = await Promise.all([allAnimals(), sightingsByAnimal(collScope)]);
   const got = animals.filter(a => sMap.has(a.id)).length;
   const pct = Math.round(got / animals.length * 100);
   const covers = new Map();
@@ -479,7 +510,8 @@ route('/collectie', async () => {
 
   let html = `
     <div class="card">
-      <div class="row"><div style="font-size:2rem">📖</div><div style="flex:1"><b>Mijn dierenboek</b><div class="small muted">${got} van ${animals.length} soorten verzameld</div></div><b style="font-size:1.4rem;color:var(--accent)">${pct}%</b></div>
+      ${hasGroup ? `<div class="seg" style="grid-template-columns:1fr 1fr;margin-bottom:12px"><a href="#" data-scope="mine" class="${collScope === 'mine' ? 'active' : ''}">📖 Mijn boek</a><a href="#" data-scope="group" class="${collScope === 'group' ? 'active' : ''}">👥 Groepsboek</a></div>` : ''}
+      <div class="row"><div style="font-size:2rem">📖</div><div style="flex:1"><b>${collScope === 'group' ? 'Ons groepsboek' : 'Mijn dierenboek'}</b><div class="small muted">${got} van ${animals.length} soorten verzameld</div></div><b style="font-size:1.4rem;color:var(--accent)">${pct}%</b></div>
       <div class="progress" style="margin-top:10px"><div style="width:${pct}%"></div></div>
       ${badges(got, sMap, animals)}
     </div>
@@ -495,6 +527,7 @@ route('/collectie', async () => {
   html += `<div style="margin-top:20px"><a class="btn secondary block" href="#/collectie/nieuw">＋ Eigen soort toevoegen</a></div>`;
   view.innerHTML = html;
   $$('.chip', view).forEach(b => b.onclick = () => { collFilter = b.dataset.f; render(); });
+  $$('[data-scope]', view).forEach(b => b.onclick = e => { e.preventDefault(); collScope = b.dataset.scope; render(); });
   fab('Dier gespot', () => { location.hash = '#/spot'; });
 }, { tab: 'collectie', title: 'Dierencollectie' });
 
@@ -540,6 +573,7 @@ route('/collectie/:id', async rawId => {
   setTitle(a.name);
   const sightings = (await db.byIndex('sightings', 'animalId', id)).sort((x, y) => (x.date || '').localeCompare(y.date || ''));
   const cover = await coverFor(id, sightings);
+  const names = await cloud.profileNames();
   const photos = sightings.flatMap(s => (s.photos || []).map(p => ({ p, s })));
 
   view.innerHTML = `
@@ -554,14 +588,19 @@ route('/collectie/:id', async rawId => {
       ${a.custom ? `<div class="row" style="margin-top:10px"><span class="spacer"></span><button class="btn danger sm" id="delCustom">Soort verwijderen</button></div>` : ''}
     </div>
     <button class="btn block" id="spot" style="margin-bottom:14px">📸 ${sightings.length ? 'Nog een waarneming toevoegen' : 'Ik heb dit dier gespot!'}</button>
-    ${photos.length ? `<div class="section-title"><h2>Mijn foto's</h2><span class="small muted">${photos.length}</span></div>
+    ${photos.length ? `<div class="section-title"><h2>Foto's</h2><span class="small muted">${photos.length}</span></div>
       <div class="gallery">${photos.map(({ p }) => `<div class="ph" data-p="${esc(p)}"><img data-photo="${esc(p)}" alt="">${p === cover ? '<span class="tag gold" style="position:absolute;left:4px;bottom:4px">omslag</span>' : ''}</div>`).join('')}</div>` : ''}
     ${sightings.length ? `<div class="section-title"><h2>Waarnemingen</h2></div><div class="list">${sightings.map(s => `
       <div class="list-item" data-s="${esc(s.id)}"><span class="lead">👁️</span><div class="body"><div class="title">${fmtDate(s.date)}${s.place ? ` · ${esc(s.place)}` : ''}</div>
-      <div class="sub">${esc(s.note || (s.photos?.length ? `${s.photos.length} foto('s)` : 'Zonder foto'))}</div></div><span class="chev">›</span></div>`).join('')}</div>` : ''}
+      <div class="sub">${!isMine(s) ? `👤 ${esc(names[s.by] || 'Reisgenoot')} · ` : ''}${esc(s.note || (s.photos?.length ? `${s.photos.length} foto('s)` : 'Zonder foto'))}</div></div><span class="chev">›</span></div>`).join('')}</div>` : ''}
   `;
   $('#spot').onclick = () => sightingForm(a);
-  $$('[data-s]').forEach(el => el.onclick = () => sightingForm(a, sightings.find(s => s.id === el.dataset.s)));
+  $$('[data-s]').forEach(el => el.onclick = async () => {
+    const sg = sightings.find(s => s.id === el.dataset.s);
+    const tr = sg.tripId ? await db.get('trips', sg.tripId) : null;
+    if (!canEditItem(tr, sg)) return toast(`Waarneming van ${names[sg.by] || 'een reisgenoot'}`);
+    sightingForm(a, sg);
+  });
   $$('.gallery .ph').forEach(el => el.onclick = () => {
     const pid = el.dataset.p; const img = $('img', el);
     if (!img.src) return;
@@ -571,7 +610,7 @@ route('/collectie/:id', async rawId => {
   });
   $('#delCustom')?.addEventListener('click', async () => {
     if (!(await confirmSheet(`"${a.name}" en alle waarnemingen verwijderen?`))) return;
-    for (const s of sightings) { for (const p of s.photos || []) await deletePhoto(p); await db.del('sightings', s.id); }
+    for (const s of sightings.filter(isMine)) { for (const p of s.photos || []) await deletePhoto(p); await db.del('sightings', s.id); await cloud.changed(s.tripId, 'sighting', s.id, s.photos || []); }
     await db.setKV('customAnimals', (await db.getKV('customAnimals', [])).filter(x => x.id !== id));
     location.hash = '#/collectie';
   });
@@ -583,6 +622,7 @@ async function sightingForm(animal, s) {
   const trip = await currentTrip();
   s = s ? { ...s } : { id: uid(), animalId: animal.id, date: todayISO(), place: '', note: '', photos: [], created: Date.now(), tripId: trip?.id };
   const geo = { lat: s.lat, lng: s.lng };
+  const oldPhotos = [...(s.photos || [])];
   const wasFirst = isNew && !(await db.byIndex('sightings', 'animalId', animal.id)).length;
   const sh = openSheet(`
     <h2>${esc(animal.emoji)} ${esc(animal.name)}</h2>
@@ -603,6 +643,7 @@ async function sightingForm(animal, s) {
     Object.assign(s, { date: $('#date', sh.root).value || todayISO(), place: $('#place', sh.root).value.trim(), note: $('#note', sh.root).value.trim(), photos: pp.ids, lat: geo.lat, lng: geo.lng });
     await pp.commit();
     await db.put('sightings', s);
+    await cloud.changed(s.tripId, 'sighting', s.id, [...new Set([...oldPhotos, ...s.photos])]);
     sh.close('ok');
     if (wasFirst) celebrate(animal); else toast('Opgeslagen ✓');
     render();
@@ -611,7 +652,9 @@ async function sightingForm(animal, s) {
     sh.close('cancel');
     if (!(await confirmSheet('Deze waarneming en foto\'s verwijderen?'))) return;
     for (const p of s.photos || []) await deletePhoto(p);
-    await db.del('sightings', s.id); render();
+    await db.del('sightings', s.id);
+    await cloud.changed(s.tripId, 'sighting', s.id, oldPhotos);
+    render();
   });
 }
 
@@ -866,7 +909,8 @@ route('/ontdek/kaart', async () => {
 // ============ Reisplanner ============
 const tripTabs = (trip, active) => `<div class="seg">
   <a href="#/reis/${encodeURIComponent(trip.id)}/plan" class="${active === 'plan' ? 'active' : ''}">🗺️ Reisplan</a>
-  <a href="#/reis/${encodeURIComponent(trip.id)}" class="${active === 'dagboek' ? 'active' : ''}">📔 Dagboek</a></div>`;
+  <a href="#/reis/${encodeURIComponent(trip.id)}" class="${active === 'dagboek' ? 'active' : ''}">📔 Dagboek</a>
+  <a href="#/reis/${encodeURIComponent(trip.id)}/samen" class="${active === 'samen' ? 'active' : ''}">👥 Samen${trip.cloud && !trip.cloud.removed ? ' ✓' : ''}</a></div>`;
 
 function planSchedule(trip, plan) {
   let night = 0;
@@ -894,7 +938,8 @@ route('/reis/:id/plan', async id => {
   $('#topActions').innerHTML = `<button class="icon-btn" id="editTrip" aria-label="Reis bewerken">✏️</button>`;
   $('#editTrip').onclick = () => tripForm(trip);
   const plan = Array.isArray(trip.plan) ? trip.plan : [];
-  const save = async () => { trip.plan = plan; await db.put('trips', trip); await rerender(); };
+  const save = async () => { trip.plan = plan; await db.put('trips', trip); await cloud.changed(trip.id, 'plan', 'plan'); await rerender(); };
+  if (!canEditTrip(trip)) view.className = 'readonly';
   const sched = planSchedule(trip, plan);
   const tripNights = daysBetween(trip.start, trip.end);
   const planNights = plan.reduce((n, s) => n + (s.nights || 0), 0);
@@ -1086,6 +1131,7 @@ async function addPlaceToPlan(place, note = '') {
     toast(`${place.name} toegevoegd aan je reisplan`);
   }
   await db.put('trips', trip);
+  await cloud.changed(trip.id, 'plan', 'plan');
 }
 
 // ============ Activiteiten ============
@@ -1174,6 +1220,305 @@ function loadLeaflet() {
   return leafletPromise;
 }
 
+// ============ Samen reizen (gedeelde reizen) ============
+let ME = null;
+async function refreshMe() { ME = await cloud.currentUser(); return ME; }
+const isMine = x => !x?.by || x.by === ME?.id;
+const canEditTrip = trip => !trip?.cloud || trip.cloud.removed || trip.cloud.role !== 'viewer';
+const canEditItem = (trip, x) => !trip?.cloud || trip.cloud.removed || trip.cloud.role === 'owner' || (trip.cloud.role === 'editor' && isMine(x));
+const roleLabel = r => ({ owner: 'Eigenaar', editor: 'Mag bewerken', viewer: 'Mag alleen bekijken' }[r] || r);
+const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+
+function fmtAgo(ts) {
+  if (!ts) return 'nog nooit';
+  const m = Math.round((Date.now() - ts) / 60000);
+  if (m < 1) return 'zojuist';
+  if (m < 60) return `${m} min geleden`;
+  const h = Math.round(m / 60);
+  return h < 24 ? `${h} uur geleden` : fmtDate(new Date(ts).toISOString().slice(0, 10));
+}
+
+async function syncNow(showToast = true) {
+  if (!navigator.onLine) { if (showToast) toast('Geen internet – je wijzigingen worden later verstuurd.'); return; }
+  try {
+    const r = await cloud.syncAll();
+    if (showToast) toast(r?.skipped ? 'Niet gesynchroniseerd (niet ingelogd?)' : 'Gesynchroniseerd ✓');
+  } catch (e) { if (showToast) toast('Synchroniseren mislukt: ' + e.message, 4000); }
+}
+
+route('/account', async () => {
+  if (!cloud.configured()) {
+    view.innerHTML = `<div class="card"><h2>👥 Samen reizen</h2><p>Samen reizen is voor deze app nog niet geactiveerd.</p>
+      <p class="small muted">Voor de beheerder van de app: maak een Supabase-project aan en vul de gegevens in <code>js/config.js</code> in (zie de README).</p></div>`;
+    return;
+  }
+  const me = await refreshMe();
+  if (!me) {
+    view.innerHTML = `<div class="card"><h2>👥 Samen reizen</h2>
+      <p>Log in om reizen te delen met je reisgenoten: samen het reisplan maken en verhalen, foto's en waarnemingen delen.</p>
+      <p class="small muted">Je krijgt een inlogcode per e-mail – je hebt geen wachtwoord nodig.</p>
+      <form id="emailForm" novalidate>
+        <label class="f" for="email">E-mailadres</label>
+        <input class="input" id="email" type="email" autocomplete="email" inputmode="email" autocapitalize="off" spellcheck="false" maxlength="254">
+        <button class="btn block" style="margin-top:10px" type="submit" id="send">Stuur inlogcode</button>
+      </form>
+      <form id="codeForm" novalidate hidden style="margin-top:14px">
+        <label class="f" for="code">Code uit de e-mail</label>
+        <input class="input" id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="10" style="font-size:1.4rem;letter-spacing:.2em;text-align:center">
+        <button class="btn block" style="margin-top:10px" type="submit" id="verify">Inloggen</button>
+        <button class="btn ghost sm" type="button" id="again">Andere e-mail / opnieuw sturen</button>
+      </form>
+    </div>
+    <div class="card small"><b>🔐 Privacy</b><ul style="margin:6px 0 0">
+      <li>Je e-mailadres wordt alleen gebruikt om in te loggen.</li>
+      <li>De inhoud van gedeelde reizen is <b>end-to-end versleuteld</b>: alleen jij en je reisgenoten kunnen hem lezen, de server niet.</li>
+      <li>Reizen die je niet deelt, blijven alleen op dit toestel.</li></ul></div>`;
+    let email = '';
+    $('#emailForm').onsubmit = async e => {
+      e.preventDefault();
+      email = $('#email').value.trim();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return toast('Vul een geldig e-mailadres in.');
+      $('#send').disabled = true;
+      try { await cloud.sendCode(email); $('#codeForm').hidden = false; $('#emailForm').hidden = true; $('#code').focus(); toast('Code verstuurd – kijk in je e-mail (ook bij spam).', 4000); }
+      catch (err) { toast(err.message || 'Versturen mislukt', 4000); }
+      $('#send').disabled = false;
+    };
+    $('#again').onclick = () => { $('#codeForm').hidden = true; $('#emailForm').hidden = false; };
+    $('#codeForm').onsubmit = async e => {
+      e.preventDefault();
+      const code = $('#code').value.replace(/\s/g, '');
+      if (!/^\d{6,10}$/.test(code)) return toast('Vul de code uit de e-mail in.');
+      $('#verify').disabled = true;
+      try { await cloud.verifyCode(email, code); await refreshMe(); toast('Ingelogd ✓'); await afterLogin(); }
+      catch (err) { toast(err.message || 'Code onjuist of verlopen', 4000); $('#verify').disabled = false; }
+    };
+    return;
+  }
+  const name = await cloud.myDisplayName();
+  const shared = (await db.all('trips')).filter(t => t.cloud);
+  view.innerHTML = `<div class="card"><h2>👤 Mijn account</h2>
+      <dl class="facts"><dt>E-mail</dt><dd>${esc(me.email || '')}</dd><dt>Laatst gesynchroniseerd</dt><dd>${esc(fmtAgo(await db.getKV('lastSync', 0)))}</dd></dl>
+      <form id="nameForm" novalidate style="margin-top:12px">
+        <label class="f" for="dn">Mijn naam (zichtbaar voor reisgenoten)</label>
+        <div class="row"><input class="input" id="dn" maxlength="40" value="${esc(name)}" placeholder="Bijv. Dirk"><button class="btn" type="submit">Opslaan</button></div>
+      </form>
+      ${!name ? '<div class="note" style="margin-top:10px">👋 Kies eerst een naam, zodat je reisgenoten zien wie wat heeft toegevoegd.</div>' : ''}
+    </div>
+    <div class="section-title"><h2>Gedeelde reizen</h2></div>
+    ${shared.length ? `<div class="list">${shared.map(t => `<a class="list-item" href="#/reis/${encodeURIComponent(t.id)}/samen"><span class="lead">👥</span><div class="body">
+      <div class="title">${esc(t.name)}</div><div class="sub">${esc(roleLabel(t.cloud.role))}${t.cloud.removed ? ' · niet meer gedeeld' : ''}</div></div><span class="chev">›</span></a>`).join('')}</div>`
+      : '<div class="card tight small muted">Nog geen gedeelde reizen. Open een reis en kies het tabblad "👥 Samen", of open een uitnodiging die je hebt gekregen.</div>'}
+    <div class="row wrap" style="margin-top:10px"><button class="btn secondary" id="syncBtn">🔄 Nu synchroniseren</button><button class="btn ghost" id="logout">Uitloggen</button></div>`;
+  $('#nameForm').onsubmit = async e => {
+    e.preventDefault();
+    try { await cloud.setDisplayName($('#dn').value); toast('Naam opgeslagen ✓'); await afterLogin(); }
+    catch (err) { toast(err.message || 'Opslaan mislukt', 4000); }
+  };
+  $('#syncBtn').onclick = async () => { await syncNow(); await rerender(); };
+  $('#logout').onclick = async () => {
+    if (!(await confirmSheet('Uitloggen? Gedeelde reizen blijven op dit toestel, maar worden niet meer bijgewerkt tot je weer inlogt.', 'Uitloggen'))) return;
+    await cloud.signOut(); ME = null; toast('Uitgelogd'); render();
+  };
+}, { tab: 'info', title: 'Samen reizen', parent: '#/info' });
+
+async function afterLogin() {
+  if (!(await cloud.myDisplayName())) { await rerender(); return; }
+  const pending = sessionStorage.getItem('pendingJoin');
+  if (pending) { sessionStorage.removeItem('pendingJoin'); await handleJoin(pending); return; }
+  const back = sessionStorage.getItem('afterLogin');
+  if (back) { sessionStorage.removeItem('afterLogin'); location.hash = back; return; }
+  syncNow(false);
+  await rerender();
+}
+
+route('/join/:code', async code => {
+  // Haal de uitnodiging (met sleutel) direct uit de adresbalk en de browsergeschiedenis.
+  history.replaceState(null, '', '#/reis');
+  if (!isStandalone()) {
+    view.innerHTML = `<div class="card"><h2>🤝 Uitnodiging voor een reis</h2>
+      <p>Heb je de Namibië-app al op je beginscherm gezet? Open dan de <b>app</b> en plak daar de uitnodiging: <b>Dagboek → 🔗 Uitnodiging openen</b>. De app en de browser bewaren hun gegevens namelijk apart.</p>
+      <button class="btn block" id="copyInv">📋 Uitnodiging kopiëren</button>
+      <button class="btn secondary block" id="here" style="margin-top:8px">Hier in de browser doorgaan</button></div>`;
+    $('#copyInv').onclick = async () => { try { await navigator.clipboard.writeText(cloud.inviteLink(code)); toast('Gekopieerd – plak hem in de app'); } catch { toast('Kopiëren lukt niet; open de link in de app.'); } };
+    $('#here').onclick = () => handleJoin(code);
+    return;
+  }
+  await handleJoin(code);
+}, { tab: 'reis', title: 'Uitnodiging' });
+
+async function handleJoin(code) {
+  if (!cloud.parseInvite(code)) { toast('Dit is geen geldige uitnodiging.', 4000); location.hash = '#/reis'; return; }
+  if (!cloud.configured()) { toast('Samen reizen is niet geactiveerd in deze app.'); return; }
+  if (!navigator.onLine) { toast('Je hebt internet nodig om mee te doen met een reis.', 4000); return; }
+  if (!(await refreshMe()) || !(await cloud.myDisplayName())) {
+    sessionStorage.setItem('pendingJoin', code);
+    toast(ME ? 'Kies eerst je naam' : 'Log eerst in om mee te doen met de reis', 4000);
+    if (location.hash === '#/account') render(); else location.hash = '#/account';
+    return;
+  }
+  view.innerHTML = '<div class="empty"><div class="big">🤝</div>Je wordt toegevoegd aan de reis…</div>';
+  try {
+    const id = await cloud.joinTrip(code);
+    toast('Welkom bij de reis! 🎉');
+    location.hash = '#/reis/' + encodeURIComponent(id) + '/plan';
+  } catch (e) { toast(e.message || 'Meedoen mislukt', 5000); location.hash = '#/reis'; }
+}
+
+function openInviteSheet() {
+  const sh = openSheet(`<h2>🔗 Uitnodiging openen</h2>
+    <p class="small">Plak hier de uitnodigingslink die je van je reisgenoot hebt gekregen.</p>
+    <textarea class="input" id="inv" style="min-height:90px" autocapitalize="off" spellcheck="false" placeholder="https://…/#/join/…"></textarea>
+    <div class="row" style="margin-top:12px"><span class="spacer"></span><button class="btn secondary" data-close>Annuleren</button><button class="btn" id="go">Meedoen</button></div>`);
+  $('#go', sh.root).onclick = () => {
+    const v = $('#inv', sh.root).value;
+    if (!cloud.parseInvite(v)) return toast('Dit is geen geldige uitnodiging.');
+    sh.close('ok'); handleJoin(v.trim().replace(/^.*#\/join\//, ''));
+  };
+}
+
+route('/reis/:id/samen', async id => {
+  const trip = await db.get('trips', id);
+  if (!trip) { location.hash = '#/reis'; return; }
+  setTitle(trip.name);
+  $('#topActions').innerHTML = `<button class="icon-btn" id="editTrip" aria-label="Reis bewerken">✏️</button>`;
+  $('#editTrip').onclick = () => tripForm(trip);
+  let html = tripTabs(trip, 'samen');
+  if (!cloud.configured()) {
+    view.innerHTML = html + `<div class="card"><h2>👥 Samen reizen</h2><p>Samen reizen is voor deze app nog niet geactiveerd.</p></div>`;
+    return;
+  }
+  await refreshMe();
+  if (!ME) {
+    view.innerHTML = html + `<div class="card"><h2>👥 Samen reizen</h2>
+      <p>Deel deze reis met je reisgenoten: samen het reisplan maken en verhalen, foto's en waarnemingen delen – end-to-end versleuteld.</p>
+      <button class="btn block" id="login">Inloggen om te delen</button></div>`;
+    $('#login').onclick = () => { sessionStorage.setItem('afterLogin', location.hash); location.hash = '#/account'; };
+    return;
+  }
+  if (!trip.cloud) {
+    view.innerHTML = html + `<div class="card"><h2>👥 Deel deze reis</h2>
+      <p>Nodig je reisgenoten uit. Daarna zien jullie allemaal:</p>
+      <ul><li>het <b>reisplan</b> (iedereen met bewerkrechten kan het aanpassen)</li>
+      <li>alle <b>verhalen en foto's</b> van deze reis</li>
+      <li>de <b>dierwaarnemingen</b> tijdens deze reis, in een gezamenlijk groepsboek</li></ul>
+      <div class="note">🔐 Alles wordt in de app versleuteld met een sleutel die alleen jullie hebben. De server kan de inhoud niet lezen. Je persoonlijke dierenboek, paklijst en contacten worden niet gedeeld.</div>
+      <button class="btn block" id="share" style="margin-top:12px">👥 Deel deze reis</button></div>`;
+    $('#share').onclick = async () => {
+      if (!(await cloud.myDisplayName())) { toast('Kies eerst je naam in je account.'); sessionStorage.setItem('afterLogin', location.hash); location.hash = '#/account'; return; }
+      if (!navigator.onLine) return toast('Je hebt internet nodig om een reis te delen.');
+      $('#share').disabled = true; toast('Reis wordt gedeeld en versleuteld geüpload…', 6000);
+      try { await cloud.shareTrip(trip); toast('Je reis is gedeeld ✓ Nodig nu je reisgenoten uit.'); }
+      catch (e) { toast('Delen mislukt: ' + e.message, 5000); }
+      await rerender();
+    };
+    return;
+  }
+  const c = trip.cloud;
+  const owner = c.role === 'owner';
+  const pending = await cloud.pendingCount(trip.id);
+  html += `
+    ${c.removed ? `<div class="card" style="border-color:var(--danger)"><b>Je bent geen lid meer van deze gedeelde reis</b><p class="small">De eigenaar heeft het delen gestopt of je verwijderd. Je lokale kopie blijft bewaard.</p><button class="btn secondary" id="detach">Bewaar als eigen reis</button></div>` : ''}
+    ${c.keyError ? `<div class="card" style="border-color:var(--danger)"><b>⚠️ De sleutel van deze reis klopt niet</b><p class="small">De gegevens kunnen niet worden gelezen. Vraag de eigenaar om een nieuwe uitnodiging.</p></div>` : ''}
+    <div class="card">
+      <div class="row"><span style="font-size:1.6rem">👥</span><div style="flex:1"><b>Gedeelde reis</b><div class="small muted">Jouw rol: ${esc(roleLabel(c.role))}</div></div></div>
+      <dl class="facts" style="margin-top:10px"><dt>Laatst bijgewerkt</dt><dd>${esc(fmtAgo(await db.getKV('lastSync', 0)))}</dd>
+        <dt>Nog te versturen</dt><dd>${pending ? `${pending} wijziging(en)` : 'niets'}${!navigator.onLine ? ' · 📴 offline' : ''}</dd></dl>
+      <button class="btn secondary sm" id="syncBtn" style="margin-top:10px">🔄 Nu synchroniseren</button>
+    </div>
+    <div class="section-title"><h2>Reisgenoten</h2>${owner && !c.removed ? '<button class="btn ghost sm" id="invite">＋ Uitnodigen</button>' : ''}</div>
+    <div class="list" id="members"><div class="list-item"><div class="body muted">Laden…</div></div></div>
+    ${owner && !c.removed ? '<div id="invites"></div>' : ''}
+    <div class="card small" style="margin-top:14px"><b>🔐 Zo is het beveiligd</b><ul style="margin:6px 0 0">
+      <li>Inhoud en foto's worden in de app versleuteld (AES-256) met de sleutel van deze reis; de server ziet alleen onleesbare gegevens.</li>
+      <li>Alleen leden van de reis krijgen toegang; kijkers kunnen niets wijzigen en niemand kan andermans verhalen of foto's aanpassen.</li>
+      <li>Uitnodigingen zijn eenmalig en 7 dagen geldig.</li>
+      <li>Let op: wat een reisgenoot al heeft gezien of gedownload, staat op zijn of haar toestel.</li></ul></div>
+    <div class="row wrap" style="margin-top:12px">${c.removed ? '' : owner
+      ? '<button class="btn danger" id="stop">Delen stoppen</button>'
+      : '<button class="btn danger" id="leave">Reis verlaten</button>'}</div>`;
+  view.innerHTML = html;
+
+  $('#syncBtn').onclick = async () => { await syncNow(); await rerender(); };
+  $('#detach')?.addEventListener('click', async () => { await cloud.leaveTrip(trip); toast('Opgeslagen als eigen reis'); render(); });
+  $('#leave')?.addEventListener('click', async () => {
+    if (!(await confirmSheet('Deze reis verlaten? Je lokale kopie blijft bewaard, maar je ontvangt geen updates meer.', 'Verlaten'))) return;
+    try { await cloud.leaveTrip(trip); toast('Je hebt de reis verlaten'); } catch (e) { toast(e.message, 4000); }
+    render();
+  });
+  $('#stop')?.addEventListener('click', async () => {
+    if (!(await confirmSheet('Delen stoppen? De gedeelde reis en alle versleutelde foto\'s worden van de server verwijderd. Reisgenoten houden alleen wat al op hun toestel staat.', 'Delen stoppen'))) return;
+    try { await cloud.stopSharing(trip); toast('Delen gestopt'); } catch (e) { toast('Mislukt: ' + e.message, 4000); }
+    render();
+  });
+  $('#invite')?.addEventListener('click', () => inviteFlow(trip));
+
+  // Leden en open uitnodigingen (online)
+  try {
+    const list = await cloud.members(trip);
+    list.sort((a, b) => (a.role === 'owner' ? -1 : b.role === 'owner' ? 1 : a.name.localeCompare(b.name)));
+    $('#members').innerHTML = list.map(m => `<div class="list-item" data-u="${esc(m.user_id)}"><span class="lead">${m.role === 'owner' ? '👑' : m.role === 'editor' ? '✏️' : '👀'}</span>
+      <div class="body"><div class="title">${esc(m.name)}${m.user_id === ME.id ? ' <span class="tag">jij</span>' : ''}</div><div class="sub">${esc(roleLabel(m.role))}</div></div>
+      ${owner && m.role !== 'owner' ? `<select class="input" data-role style="width:auto;padding:6px"><option value="editor" ${m.role === 'editor' ? 'selected' : ''}>Bewerken</option><option value="viewer" ${m.role === 'viewer' ? 'selected' : ''}>Bekijken</option></select>
+        <button class="btn ghost sm" data-rm aria-label="Verwijderen">✕</button>` : ''}</div>`).join('');
+    $$('[data-role]').forEach(sel => sel.onchange = async () => {
+      try { await cloud.setRole(trip, sel.closest('[data-u]').dataset.u, sel.value); toast('Rol aangepast'); } catch (e) { toast(e.message, 4000); }
+    });
+    $$('[data-rm]').forEach(b => b.onclick = async () => {
+      const u = b.closest('[data-u]').dataset.u, nm = list.find(x => x.user_id === u)?.name;
+      if (!(await confirmSheet(`${nm} uit de reis verwijderen? Wat al op zijn of haar toestel staat, blijft daar.`, 'Verwijderen'))) return;
+      try { await cloud.removeMember(trip, u); toast('Verwijderd'); } catch (e) { toast(e.message, 4000); }
+      rerender();
+    });
+    if (owner && !c.removed) {
+      const inv = (await cloud.invites(trip)).filter(i => i.uses < i.max_uses && new Date(i.expires_at) > new Date());
+      if (inv.length) $('#invites').innerHTML = `<div class="small muted" style="margin:4px 2px 6px">Openstaande uitnodigingen</div><div class="list">${inv.map(i => `<div class="list-item" data-inv="${esc(i.id)}"><span class="lead">✉️</span>
+        <div class="body"><div class="title">${esc(roleLabel(i.role))}</div><div class="sub">Geldig tot ${esc(fmtDate(String(i.expires_at).slice(0, 10)))}</div></div>
+        <button class="btn ghost sm" data-delinv aria-label="Intrekken">Intrekken</button></div>`).join('')}</div>`;
+      $$('[data-delinv]').forEach(b => b.onclick = async () => { try { await cloud.deleteInvite(b.closest('[data-inv]').dataset.inv); toast('Uitnodiging ingetrokken'); } catch (e) { toast(e.message); } rerender(); });
+    }
+  } catch {
+    $('#members').innerHTML = `<div class="list-item"><div class="body muted">${navigator.onLine ? 'Reisgenoten konden niet worden geladen.' : '📴 Reisgenoten laden lukt alleen met internet.'}</div></div>`;
+  }
+}, { tab: 'reis', parent: '#/reis' });
+
+async function inviteFlow(trip) {
+  if (!navigator.onLine) return toast('Je hebt internet nodig om iemand uit te nodigen.');
+  const role = await new Promise(resolve => {
+    let v = null;
+    const sh = openSheet(`<h2>Reisgenoot uitnodigen</h2><p class="small">Wat mag deze reisgenoot?</p>
+      <div class="list"><label class="check"><input type="radio" name="r" value="editor" checked><span><b>Meedoen en bewerken</b><br><span class="small muted">Reisplan aanpassen, eigen verhalen, foto's en waarnemingen toevoegen</span></span></label>
+      <label class="check"><input type="radio" name="r" value="viewer"><span><b>Alleen bekijken</b><br><span class="small muted">Bijv. familie thuis die mee wil kijken</span></span></label></div>
+      <div class="row" style="margin-top:14px"><span class="spacer"></span><button class="btn secondary" data-close>Annuleren</button><button class="btn" id="mk">Uitnodiging maken</button></div>`,
+      { onClose: () => resolve(v) });
+    $('#mk', sh.root).onclick = () => { v = $('input[name=r]:checked', sh.root).value; sh.close('ok'); };
+  });
+  if (!role) return;
+  let link;
+  try { link = cloud.inviteLink(await cloud.createInvite(trip, role)); } catch (e) { return toast('Uitnodigen mislukt: ' + e.message, 4000); }
+  const sh = openSheet(`<h2>✉️ Uitnodiging klaar</h2>
+    <p>Stuur deze link naar je reisgenoot. Hij werkt <b>één keer</b> en is <b>7 dagen geldig</b>.</p>
+    <textarea class="input" id="lnk" readonly style="min-height:90px;font-size:.85rem">${esc(link)}</textarea>
+    <div class="row wrap" style="margin-top:10px">${navigator.share ? '<button class="btn" id="shareL">📤 Delen</button>' : ''}<button class="btn secondary" id="copyL">📋 Kopiëren</button></div>
+    <div class="note" style="margin-top:12px">🔐 De link bevat de geheime sleutel van jullie reis. Stuur hem alleen <b>rechtstreeks</b> naar je reisgenoot (bijv. in een privéchat), niet in een groep of op social media.</div>
+    <p class="small muted" style="margin-top:10px">💡 Laat je reisgenoot eerst de app op het beginscherm zetten. Opent de link in de browser in plaats van de app? Kies dan in de app <b>Dagboek → 🔗 Uitnodiging openen</b> en plak de link.</p>
+    <div class="row" style="margin-top:10px"><span class="spacer"></span><button class="btn secondary" data-close>Klaar</button></div>`, { onClose: () => rerender() });
+  $('#shareL', sh.root)?.addEventListener('click', async () => { try { await navigator.share({ title: 'Uitnodiging Namibië-reis', text: `Doe mee met onze reis "${trip.name}" in de Namibië-app:`, url: link }); } catch { /* geannuleerd */ } });
+  $('#copyL', sh.root).onclick = async () => { try { await navigator.clipboard.writeText(link); toast('Link gekopieerd ✓'); } catch { $('#lnk', sh.root).select(); toast('Selecteer en kopieer de link'); } };
+}
+
+function startCloud() {
+  if (!cloud.configured()) return;
+  const kick = () => { if (document.visibilityState === 'visible' && navigator.onLine) cloud.syncAll().catch(() => {}); };
+  window.addEventListener('online', kick);
+  document.addEventListener('visibilitychange', kick);
+  setInterval(kick, 90000);
+  cloud.events.addEventListener('changed', () => {
+    if ($('.sheet-backdrop') || document.body.classList.contains('locked')) return;
+    rerender();
+  });
+  refreshMe().then(kick);
+}
+
 // ============ INFO ============
 route('/info', async () => {
   const rate = await db.getKV('rate', 20);
@@ -1182,6 +1527,7 @@ route('/info', async () => {
     ${converterHtml(rate)}
     <div class="list">
       <a class="list-item" href="#/paklijst"><span class="lead">🎒</span><div class="body"><div class="title">Paklijst</div><div class="sub">Afvinken wat je hebt ingepakt</div></div><span class="chev">›</span></a>
+      <a class="list-item" href="#/account"><span class="lead">👥</span><div class="body"><div class="title">Samen reizen</div><div class="sub">Account en reizen delen met je reisgenoten</div></div><span class="chev">›</span></a>
       <a class="list-item" href="#/nood"><span class="lead">🆘</span><div class="body"><div class="title">Noodnummers & contacten</div><div class="sub">Politie, ambassade, je eigen contacten</div></div><span class="chev">›</span></a>
       <a class="list-item" href="#/taal"><span class="lead">💬</span><div class="body"><div class="title">Handige zinnetjes</div><div class="sub">Afrikaans, Oshiwambo, Otjiherero</div></div><span class="chev">›</span></a>
     </div>
@@ -1301,7 +1647,8 @@ route('/instellingen', async () => {
     </div>
     <div class="card"><h2>🕵️ Privacy</h2>
       <ul class="small">
-        <li>Geen account, geen server, geen tracking of advertenties. Niets van je gegevens verlaat dit toestel, behalve een back-up die jij zelf deelt.</li>
+        <li>Geen tracking of advertenties. Je gegevens blijven op dit toestel, behalve een back-up die jij zelf deelt en reizen die je bewust deelt met reisgenoten.</li>
+        <li>Gedeelde reizen worden <b>end-to-end versleuteld</b> opgeslagen bij Supabase (EU): de server kan inhoud en foto's niet lezen; alleen je e-mailadres, naam en wie lid is van welke reis zijn er bekend.</li>
         <li>Bij het opslaan van foto's worden verborgen gegevens (EXIF) zoals GPS-locatie en toestelinformatie verwijderd.</li>
         <li>Je locatie wordt alleen opgevraagd als je zelf op "📍 Huidige locatie" tikt.</li>
         <li>Alleen bij gebruik van de online kaart, "Route" of 🔎 maakt je toestel verbinding met OpenStreetMap, Google of Apple. Die zien dan welk gebied of welke plek je bekijkt.</li>
@@ -1467,6 +1814,7 @@ async function refreshLockSettings() {
 
 function doLock() {
   lock.lockNow();
+  cloud.clearKeys();
   showLockScreen();
 }
 
@@ -1510,6 +1858,7 @@ function showLockScreen() {
     if (ok) {
       el.remove(); document.body.classList.remove('locked');
       await refreshLockSettings();
+      refreshMe().then(() => cloud.syncAll().catch(() => {}));
       render();
     } else {
       msg.textContent = 'Onjuist wachtwoord.';
@@ -1599,4 +1948,4 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     showOfflineStatus();
   });
 }
-refreshLockSettings().finally(render);
+refreshLockSettings().finally(async () => { await refreshMe().catch(() => {}); render(); startCloud(); });
