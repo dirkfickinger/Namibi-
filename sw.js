@@ -1,6 +1,6 @@
 // Service worker: maakt de app volledig offline beschikbaar.
 // Verhoog VERSION bij elke wijziging zodat geïnstalleerde apps de nieuwe versie ophalen.
-const VERSION = 'v7';
+const VERSION = 'v8';
 const SHELL = `shell-${VERSION}`;
 const TILES = 'tiles';
 const MAX_TILES = 3000; // ca. 50–80 MB aan bewaarde kaarttegels

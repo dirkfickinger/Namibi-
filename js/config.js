@@ -5,6 +5,6 @@
 // Zet hier NOOIT de "service_role"/"secret" sleutel neer.
 //
 // Laat beide leeg om gedeelde reizen uit te schakelen.
-export const SUPABASE_URL = '';
-export const SUPABASE_ANON_KEY = '';
+export const SUPABASE_URL = 'https://vyzgruhglyeayojymnvi.supabase.co';
+export const SUPABASE_ANON_KEY = 'sb_publishable_Qmm9qg868RqS_rggTBBnDQ_10WLA5Zh';
 export const BACKEND = 'supabase';
